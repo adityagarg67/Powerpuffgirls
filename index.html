@@ -1,0 +1,2829 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MEDFLOW: Dynamic Triage & Dynamic Mortality Simulator</title>
+  
+  <!-- Google Fonts: Plus Jakarta Sans & Space Grotesk -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300..800;1,300..800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Chart.js CDN for Analytics -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  
+  <!-- Tone.js CDN for Audio Feedback -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+  
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            beige: {
+              50: '#FAF8F5',
+              100: '#F4F1EA',
+              200: '#E8E3D5',
+              300: '#D9D1C0',
+              400: '#C3B8A3',
+              500: '#A49880',
+              800: '#3D382E',
+              900: '#23201A'
+            },
+            olive: {
+              50: '#F3F6F4',
+              100: '#E1E8E3',
+              200: '#C4D3C7',
+              300: '#9FB4A3',
+              400: '#6E8271',
+              500: '#4A5D4E',
+              600: '#3B4A3E',
+              700: '#2D3A30',
+              800: '#1F2821',
+              900: '#141A15'
+            },
+            slate: {
+              750: '#232825',
+              850: '#181C1A',
+              950: '#0F1211'
+            },
+            amber: {
+              gold: '#C29B38',
+              warm: '#D9A736'
+            },
+            crimson: {
+              red: '#A84438',
+              bright: '#C84B3C'
+            }
+          },
+          fontFamily: {
+            sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+            mono: ['"Space Grotesk"', 'monospace'],
+            grotesk: ['"Space Grotesk"', 'sans-serif']
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    body {
+      background-color: #F4F1EA;
+      color: #23201A;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #E8E3D5;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #9FB4A3;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #4A5D4E;
+    }
+
+    .glass-card {
+      background: rgba(255, 255, 255, 0.92);
+      backdrop-filter: blur(8px);
+      border: 1px solid #D9D1C0;
+    }
+
+    .dark-card {
+      background: #1C221E;
+      color: #F4F1EA;
+      border: 1px solid #2D3A30;
+    }
+
+    @keyframes pulse-subtle {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.88; transform: scale(1.02); }
+    }
+    .animate-pulse-subtle {
+      animation: pulse-subtle 2s infinite ease-in-out;
+    }
+
+    @keyframes ambulance-in {
+      0% { opacity: 0; transform: translateY(-14px) scale(.98); }
+      100% { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    @keyframes ambulance-alert {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(200, 75, 60, 0.15); }
+      50% { box-shadow: 0 0 0 8px rgba(200, 75, 60, 0.08); }
+    }
+
+    .ambulance-popout {
+      animation: ambulance-in .22s ease-out;
+    }
+
+    .ambulance-popout.alert-window {
+      animation: ambulance-in .22s ease-out, ambulance-alert 1.2s infinite ease-in-out;
+    }
+
+    .toast-stack {
+      position: fixed;
+      top: 86px;
+      right: 18px;
+      z-index: 80;
+      width: min(390px, calc(100vw - 36px));
+      pointer-events: none;
+    }
+
+    .sim-toast {
+      pointer-events: auto;
+      margin-bottom: 10px;
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 18px 40px rgba(15, 18, 17, 0.18);
+      animation: ambulance-in .22s ease-out;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col antialiased selection:bg-olive-500 selection:text-white">
+
+  <header class="sticky top-0 z-30 bg-[#1C221E] text-beige-100 border-b border-olive-700 shadow-md">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-wrap items-center justify-between gap-4">
+      
+      <!-- Brand Logo & Title -->
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-olive-500 to-olive-700 flex items-center justify-center text-beige-50 shadow-inner border border-olive-400">
+          <i class="fa-solid fa-heart-pulse text-lg animate-pulse-subtle"></i>
+        </div>
+        <div>
+          <div class="flex items-center space-x-2">
+            <h1 class="font-grotesk font-bold text-xl tracking-tight text-beige-50">MEDFLOW</h1>
+            <span class="text-[10px] font-mono uppercase bg-olive-700 text-olive-200 px-2 py-0.5 rounded-full border border-olive-500">v4.0 Dynamic Engine</span>
+          </div>
+          <p class="text-xs text-beige-400">Hospital Resource Allocation & Dynamic Mortality Engine</p>
+        </div>
+      </div>
+
+      <!-- Navigation Tabs (3 Tabs) -->
+      <div class="flex bg-slate-850 p-1 rounded-xl border border-olive-800">
+        <button id="btn-tab-1" onclick="switchTab(1)" class="px-4 py-2 text-xs font-bold rounded-lg bg-olive-600 text-beige-50 shadow-sm transition flex items-center space-x-2">
+          <i class="fa-solid fa-gauge-high"></i>
+          <span>Live Operations</span>
+        </button>
+        <button id="btn-tab-2" onclick="switchTab(2)" class="px-4 py-2 text-xs font-bold rounded-lg text-beige-300 hover:text-beige-50 transition flex items-center space-x-2">
+          <i class="fa-solid fa-chart-column"></i>
+          <span>Department Analytics</span>
+        </button>
+        <button id="btn-tab-3" onclick="switchTab(3)" class="px-4 py-2 text-xs font-bold rounded-lg text-beige-300 hover:text-beige-50 transition flex items-center space-x-2">
+          <i class="fa-solid fa-brain"></i>
+          <span>Admission Logic</span>
+        </button>
+      </div>
+
+      <!-- Simulation Clock & Status -->
+      <div class="flex items-center space-x-4 bg-slate-850 px-3.5 py-1.5 rounded-xl border border-olive-800">
+        <div class="text-center">
+          <div class="text-[10px] uppercase font-mono tracking-wider text-beige-400">Simulated Time</div>
+          <div class="flex items-center gap-2"><div id="sim-clock-display" class="font-mono text-base font-bold text-amber-gold">Day 1 - 08:00 AM</div><span id="peak-hour-display" class="px-2 py-0.5 rounded bg-olive-800 text-[10px] font-mono text-beige-200">NORMAL ARRIVALS</span></div>
+        </div>
+        <div class="h-6 w-[1px] bg-olive-700"></div>
+        <div class="text-center">
+          <div class="text-[10px] uppercase font-mono tracking-wider text-beige-400">Tick Count</div>
+          <div id="sim-tick-display" class="font-mono text-base font-semibold text-beige-100">0</div>
+        </div>
+      </div>
+
+      <!-- Controls & Actions -->
+      <div class="flex items-center space-x-2 flex-wrap gap-y-2">
+        <button onclick="openInfoModal()" class="bg-amber-gold hover:bg-amber-warm text-slate-950 font-bold px-3 py-2 rounded-lg text-xs shadow-sm transition flex items-center space-x-1.5 border border-amber-300">
+          <i class="fa-solid fa-circle-info"></i>
+          <span>Priority & Mortality Info</span>
+        </button>
+
+        <button id="btn-play-pause" onclick="toggleSimulation()" class="bg-olive-600 hover:bg-olive-500 text-beige-50 px-3.5 py-2 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-all shadow-sm">
+          <i id="play-pause-icon" class="fa-solid fa-play"></i>
+          <span id="play-pause-text">Start Sim</span>
+        </button>
+
+        <div class="flex bg-slate-800 rounded-lg p-0.5 border border-olive-800">
+          <button onclick="setSimSpeed(1)" id="speed-btn-1" class="px-2 py-1 text-[11px] font-mono rounded text-beige-200 bg-olive-700 font-bold">1x</button>
+          <button onclick="setSimSpeed(2)" id="speed-btn-2" class="px-2 py-1 text-[11px] font-mono rounded text-beige-400 hover:text-beige-100">2x</button>
+          <button onclick="setSimSpeed(5)" id="speed-btn-5" class="px-2 py-1 text-[11px] font-mono rounded text-beige-400 hover:text-beige-100">5x</button>
+        </div>
+
+        <button onclick="stepSimulation()" class="bg-slate-750 hover:bg-slate-700 text-beige-200 px-3 py-2 rounded-lg text-xs font-medium border border-olive-700 transition">
+          <i class="fa-solid fa-forward-step mr-1"></i> +1 Sim Min
+        </button>
+
+        <!-- TOP RESET QUEUE BUTTON -->
+        <button onclick="clearQueue()" class="bg-crimson-red hover:bg-crimson-bright text-white px-3 py-2 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition border border-crimson-red shadow-sm" title="Clear Triage Queue">
+          <i class="fa-solid fa-trash-can"></i>
+          <span>Reset Queue</span>
+        </button>
+
+        <button id="btn-toggle-autoadmit" onclick="toggleAutoAdmit()" class="bg-olive-800 hover:bg-olive-700 text-beige-100 px-3 py-2 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition border border-olive-600">
+          <i id="icon-autoadmit" class="fa-solid fa-robot text-amber-gold"></i>
+          <span>Auto Admit: <strong id="status-autoadmit" class="text-amber-gold">ON</strong></span>
+        </button>
+
+        <button id="btn-toggle-staff-shortage" onclick="toggleStaffShortage()" class="bg-slate-800 hover:bg-slate-700 text-beige-200 px-3 py-2 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition border border-olive-800">
+          <i id="icon-staff-shortage" class="fa-solid fa-user-minus text-slate-400"></i>
+          <span>Staff Shortage: <strong id="status-staff-shortage" class="text-slate-400">OFF</strong></span>
+        </button>
+
+        <button id="btn-toggle-resource-failure" onclick="toggleResourceFailure()" class="bg-slate-800 hover:bg-slate-700 text-beige-200 px-3 py-2 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition border border-olive-800">
+          <i id="icon-resource-failure" class="fa-solid fa-triangle-exclamation text-slate-400"></i>
+          <span>Resource Failure: <strong id="status-resource-failure" class="text-slate-400">OFF</strong></span>
+        </button>
+
+        <button id="btn-toggle-peak-hour" onclick="togglePeakHourSystem()" class="bg-slate-800 hover:bg-slate-700 text-beige-200 px-3 py-2 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition border border-olive-800" title="Automatic peak period every 3 simulation hours for 15 simulation minutes">
+          <i id="icon-peak-hour" class="fa-solid fa-people-group text-amber-gold"></i>
+          <span>Peak Hours: <strong id="status-peak-hour" class="text-amber-gold">AUTO</strong></span>
+        </button>
+
+        <button id="btn-toggle-random" onclick="toggleRandomGen()" class="bg-slate-800 hover:bg-slate-700 text-beige-200 px-3 py-2 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition border border-olive-800">
+          <i id="icon-random" class="fa-solid fa-dice text-slate-400"></i>
+          <span>Random Arrivals: <strong id="status-random" class="text-slate-400">OFF</strong></span>
+        </button>
+
+        <button onclick="triggerMassCasualty()" class="bg-crimson-red hover:bg-crimson-bright text-white px-3 py-2 rounded-lg text-xs font-bold transition shadow-md flex items-center space-x-1.5" title="Randomly inject 1-5 Level 3-5 patients">
+          <i class="fa-solid fa-triangle-exclamation"></i>
+          <span>Surge</span>
+        </button>
+
+        <button onclick="openAddPatientModal()" class="bg-gradient-to-r from-amber-gold to-amber-warm hover:brightness-110 text-slate-950 font-bold px-3.5 py-2 rounded-lg text-xs shadow-md transition flex items-center space-x-1.5 border border-amber-300">
+          <i class="fa-solid fa-user-plus text-sm"></i>
+          <span>+ Add Patient</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+    <!-- KPI BAR -->
+    <section class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+      <div class="glass-card p-4 rounded-xl shadow-sm">
+        <div class="flex justify-between items-start">
+          <span class="text-[11px] font-mono uppercase text-olive-700 font-medium tracking-wider">Hospital Occupancy</span>
+          <i class="fa-solid fa-bed text-olive-500 text-sm"></i>
+        </div>
+        <div id="kpi-occupancy" class="font-grotesk text-2xl font-bold text-slate-900 mt-2">0%</div>
+        <div class="text-[11px] text-olive-600 mt-1 flex items-center space-x-1">
+          <span id="kpi-beds-detail">0 / 35 Beds Active</span>
+        </div>
+      </div>
+
+      <div class="glass-card p-4 rounded-xl shadow-sm">
+        <div class="flex justify-between items-start">
+          <span class="text-[11px] font-mono uppercase text-olive-700 font-medium tracking-wider">Triage Queue</span>
+          <i class="fa-solid fa-users text-amber-gold text-sm"></i>
+        </div>
+        <div id="kpi-queue-size" class="font-grotesk text-2xl font-bold text-slate-900 mt-2">0</div>
+        <div id="kpi-queue-status" class="text-[11px] text-slate-600 mt-1">Patients Waiting</div>
+      </div>
+
+      <div class="glass-card p-4 rounded-xl shadow-sm">
+        <div class="flex justify-between items-start">
+          <span class="text-[11px] font-mono uppercase text-olive-700 font-medium tracking-wider">Avg Wait Time</span>
+          <i class="fa-solid fa-clock text-olive-500 text-sm"></i>
+        </div>
+        <div id="kpi-avg-wait" class="font-grotesk text-2xl font-bold text-slate-900 mt-2">0m</div>
+        <div class="text-[11px] text-slate-600 mt-1">Target: &lt; 15 mins</div>
+      </div>
+
+      <!-- DYNAMIC MORTALITY RATE KPI -->
+      <div class="glass-card p-4 rounded-xl shadow-sm border-l-4 border-l-crimson-red">
+        <div class="flex justify-between items-start">
+          <span class="text-[11px] font-mono uppercase text-crimson-red font-bold tracking-wider">Mortality Rate</span>
+          <i class="fa-solid fa-skull text-crimson-red text-sm"></i>
+        </div>
+        <div id="kpi-mortality-rate" class="font-grotesk text-2xl font-bold text-crimson-red mt-2">0.0%</div>
+        <div class="text-[11px] text-slate-600 mt-1"><span id="kpi-deaths-count">0 Fatalities</span> (Dynamic Risk)</div>
+      </div>
+
+      <!-- HOSPITAL EFFICIENCY KPI -->
+      <div class="glass-card p-4 rounded-xl shadow-sm border-l-4 border-l-olive-600">
+        <div class="flex justify-between items-start">
+          <span class="text-[11px] font-mono uppercase text-olive-700 font-bold tracking-wider">Hospital Efficiency</span>
+          <i class="fa-solid fa-chart-pie text-olive-600 text-sm"></i>
+        </div>
+        <div id="kpi-hospital-efficiency" class="font-grotesk text-2xl font-bold text-olive-700 mt-2">100%</div>
+        <div class="text-[11px] text-slate-600 mt-1">Triage & Survival Index</div>
+      </div>
+
+      <div class="glass-card p-4 rounded-xl shadow-sm">
+        <div class="flex justify-between items-start">
+          <span class="text-[11px] font-mono uppercase text-olive-700 font-medium tracking-wider">Specialists Avail</span>
+          <i class="fa-solid fa-user-doctor text-olive-600 text-sm"></i>
+        </div>
+        <div id="kpi-doctors-avail" class="font-grotesk text-2xl font-bold text-slate-900 mt-2">29 / 29</div>
+        <div class="text-[11px] text-olive-600 mt-1">7 Specialty Fields</div>
+      </div>
+    </section>
+
+    <!-- TAB 1: LIVE SIMULATOR VIEW -->
+    <div id="tab-1-view" class="space-y-6">
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+        <div class="lg:col-span-8 space-y-6">
+          <!-- TRIAGE QUEUE & STRATEGY PANEL -->
+          <div class="glass-card rounded-xl p-5 shadow-sm">
+            <div class="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-beige-300">
+              <div>
+                <div class="flex items-center space-x-2">
+                  <i class="fa-solid fa-list-ol text-olive-600"></i>
+                  <h2 class="font-grotesk font-bold text-lg text-slate-900">Dynamic Priority Queue</h2>
+                </div>
+                <p class="text-xs text-slate-600">Patients sorted in real-time by admission strategy & dynamic mortality risk</p>
+              </div>
+
+              <div class="flex flex-wrap items-center gap-2">
+                <!-- 3 ADMISSION LOGIC STRATEGY BUTTONS -->
+                <div class="bg-beige-200 p-1 rounded-lg border border-beige-300 flex text-xs gap-1">
+                  <button onclick="setStrategy('priority')" id="strat-btn-priority" class="px-2.5 py-1 rounded-md font-semibold text-beige-50 bg-olive-600 transition shadow-sm">
+                    Priority Wise
+                  </button>
+                  <button onclick="setStrategy('fcfs')" id="strat-btn-fcfs" class="px-2.5 py-1 rounded-md text-slate-700 hover:text-slate-900 transition">
+                    First Come First Serve
+                  </button>
+                  <button onclick="setStrategy('lrf')" id="strat-btn-lrf" class="px-2.5 py-1 rounded-md text-slate-700 hover:text-slate-900 transition">
+                    Least Resources First
+                  </button>
+                </div>
+
+                <select id="queue-dept-filter" onchange="renderQueueTable()" class="bg-beige-50 border border-beige-300 rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-800 focus:outline-none focus:ring-1 focus:ring-olive-500">
+                  <option value="ALL">All Departments</option>
+                  <option value="Emergency">Emergency</option>
+                  <option value="Cardiology">Cardiology</option>
+                  <option value="Surgery">Surgery</option>
+                  <option value="ICU">ICU</option>
+                  <option value="Neurology">Neurology</option>
+                  <option value="Orthopedics">Orthopedics</option>
+                  <option value="General Care">General Care</option>
+                </select>
+
+                <button onclick="openAddPatientModal()" class="bg-olive-700 hover:bg-olive-800 text-beige-50 px-3 py-1.5 rounded-lg text-xs font-medium transition flex items-center space-x-1">
+                  <i class="fa-solid fa-plus text-xs"></i>
+                  <span>Add Patient</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="overflow-x-auto mt-4">
+              <table class="w-full text-left border-collapse">
+                <thead>
+                  <tr class="text-[11px] font-mono uppercase text-slate-600 border-b border-beige-300 bg-beige-100/50">
+                    <th class="py-2.5 px-3">Rank / Patient</th>
+                    <th class="py-2.5 px-3">Condition & Dept</th>
+                    <th class="py-2.5 px-3">Severity</th>
+                    <th class="py-2.5 px-3">Mortality Risk</th>
+                    <th class="py-2.5 px-3">Req Doctor</th>
+                    <th class="py-2.5 px-3">Wait Mins</th>
+                    <th class="py-2.5 px-3">Admission Metric</th>
+                    <th class="py-2.5 px-3 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody id="queue-table-body" class="divide-y divide-beige-200 text-xs"></tbody>
+              </table>
+              
+              <div id="queue-empty-msg" class="hidden py-8 text-center text-slate-500 text-xs">
+                <i class="fa-solid fa-circle-check text-olive-500 text-2xl mb-1 block"></i>
+                No patients waiting in queue. All patients treated or admitted.
+              </div>
+            </div>
+          </div>
+
+          <!-- ADMITTED PATIENTS & ACTIVE BEDS PANEL -->
+          <div class="glass-card rounded-xl p-5 shadow-sm">
+            <div class="flex items-center justify-between pb-3 border-b border-beige-300">
+              <div class="flex items-center space-x-2">
+                <i class="fa-solid fa-hospital-user text-olive-600"></i>
+                <h2 class="font-grotesk font-bold text-lg text-slate-900">Active Surgeries & Admitted Treatment Units</h2>
+              </div>
+              <span id="admitted-count-badge" class="font-mono text-xs bg-olive-100 text-olive-800 border border-olive-300 px-2.5 py-0.5 rounded-full font-bold">0 Active</span>
+            </div>
+
+            <div id="admitted-patients-grid" class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4"></div>
+          </div>
+
+          <!-- TELEMETRY & ANALYTICS -->
+          <div class="glass-card rounded-xl p-5 shadow-sm">
+            <div class="flex items-center justify-between pb-3 border-b border-beige-300">
+              <div class="flex items-center space-x-2">
+                <i class="fa-solid fa-chart-line text-olive-600"></i>
+                <h2 class="font-grotesk font-bold text-lg text-slate-900">Operations Analytics & Dynamic Mortality Telemetry</h2>
+              </div>
+              <span class="text-xs text-slate-500 font-mono">Live Operations</span>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+              <div class="bg-beige-50/70 p-3 rounded-lg border border-beige-300">
+                <div class="text-xs font-mono font-semibold text-slate-700 mb-2">Resource Utilization Over Time (%)</div>
+                <div class="h-48"><canvas id="chart-utilization"></canvas></div>
+              </div>
+
+              <div class="bg-beige-50/70 p-3 rounded-lg border border-beige-300">
+                <div class="text-xs font-mono font-semibold text-slate-700 mb-2">Current Queue Severity Breakdown</div>
+                <div class="h-48 flex items-center justify-center"><canvas id="chart-acuity"></canvas></div>
+              </div>
+            </div>
+
+            <div class="mt-4 bg-beige-100/60 p-3 rounded-lg border border-beige-300">
+              <div class="text-xs font-mono font-semibold text-slate-800 mb-2">Admission Strategy Comparison (Avg Wait Mins)</div>
+              <div class="h-36"><canvas id="chart-strategy"></canvas></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="lg:col-span-4 space-y-6">
+          <!-- INFRASTRUCTURE & BASE PRIORITY CONFIGURATION -->
+          <div class="glass-card rounded-xl p-5 shadow-sm space-y-4">
+            <div class="flex items-center justify-between border-b border-beige-300 pb-2">
+              <div class="flex items-center space-x-2">
+                <i class="fa-solid fa-sliders text-olive-600"></i>
+                <h3 class="font-grotesk font-bold text-sm text-slate-900">Infrastructure & Base Priority Settings</h3>
+              </div>
+              <span class="text-[10px] font-mono text-olive-700 uppercase font-bold">Base Capacity</span>
+            </div>
+
+            <div class="space-y-3 text-xs">
+              <!-- Bed & Equipment Base Capacity -->
+              <div class="space-y-1.5">
+                <div class="font-semibold text-slate-800 font-mono uppercase text-[11px] text-olive-800 flex items-center gap-1">
+                  <i class="fa-solid fa-bed text-olive-600"></i>
+                  <span>Beds & Equipment Capacity</span>
+                </div>
+                
+                <div class="grid grid-cols-2 gap-2">
+                  <div>
+                    <label class="block text-[11px] text-slate-600 mb-0.5">General Beds:</label>
+                    <input type="number" id="base-general-beds" min="1" max="100" value="25" onchange="updateBaseConfig()" class="w-full bg-beige-50 border border-beige-300 rounded px-2 py-1 text-xs font-mono text-slate-900 focus:outline-none focus:ring-1 focus:ring-olive-500">
+                  </div>
+                  <div>
+                    <label class="block text-[11px] text-slate-600 mb-0.5">ICU Beds:</label>
+                    <input type="number" id="base-icu-beds" min="1" max="50" value="10" onchange="updateBaseConfig()" class="w-full bg-beige-50 border border-beige-300 rounded px-2 py-1 text-xs font-mono text-slate-900 focus:outline-none focus:ring-1 focus:ring-olive-500">
+                  </div>
+                  <div>
+                    <label class="block text-[11px] text-slate-600 mb-0.5">Operating Rooms:</label>
+                    <input type="number" id="base-operating-rooms" min="1" max="20" value="6" onchange="updateBaseConfig()" class="w-full bg-beige-50 border border-beige-300 rounded px-2 py-1 text-xs font-mono text-slate-900 focus:outline-none focus:ring-1 focus:ring-olive-500">
+                  </div>
+                  <div>
+                    <label class="block text-[11px] text-slate-600 mb-0.5">Nurses:</label>
+                    <input type="number" id="base-nurses" min="1" max="100" value="30" onchange="updateBaseConfig()" class="w-full bg-beige-50 border border-beige-300 rounded px-2 py-1 text-xs font-mono text-slate-900 focus:outline-none focus:ring-1 focus:ring-olive-500">
+                  </div>
+                </div>
+                <div>
+                  <label class="block text-[11px] text-slate-600 mb-0.5">Ambulances:</label>
+                  <input type="number" id="base-ambulances" min="1" max="30" value="8" onchange="updateBaseConfig()" class="w-full bg-beige-50 border border-beige-300 rounded px-2 py-1 text-xs font-mono text-slate-900 focus:outline-none focus:ring-1 focus:ring-olive-500">
+                </div>
+              </div>
+
+              <!-- Specialist Doctors Base Capacity -->
+              <div class="space-y-1.5 pt-2 border-t border-beige-200">
+                <div class="font-semibold text-slate-800 font-mono uppercase text-[11px] text-olive-800 flex items-center gap-1">
+                  <i class="fa-solid fa-user-doctor text-olive-600"></i>
+                  <span>Specialist Doctors Capacity</span>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                  <div>
+                    <label class="block text-[11px] text-slate-600 mb-0.5">ER Physicians:</label>
+                    <input type="number" id="base-doc-er" min="1" max="50" value="6" onchange="updateBaseConfig()" class="w-full bg-beige-50 border border-beige-300 rounded px-2 py-1 text-xs font-mono text-slate-900 focus:outline-none focus:ring-1 focus:ring-olive-500">
+                  </div>
+                  <div>
+                    <label class="block text-[11px] text-slate-600 mb-0.5">Cardiologists:</label>
+                    <input type="number" id="base-doc-cardio" min="1" max="50" value="4" onchange="updateBaseConfig()" class="w-full bg-beige-50 border border-beige-300 rounded px-2 py-1 text-xs font-mono text-slate-900 focus:outline-none focus:ring-1 focus:ring-olive-500">
+                  </div>
+                  <div>
+                    <label class="block text-[11px] text-slate-600 mb-0.5">General Surgeons:</label>
+                    <input type="number" id="base-doc-surgeons" min="1" max="50" value="5" onchange="updateBaseConfig()" class="w-full bg-beige-50 border border-beige-300 rounded px-2 py-1 text-xs font-mono text-slate-900 focus:outline-none focus:ring-1 focus:ring-olive-500">
+                  </div>
+                  <div>
+                    <label class="block text-[11px] text-slate-600 mb-0.5">Intensivists:</label>
+                    <input type="number" id="base-doc-icu" min="1" max="50" value="4" onchange="updateBaseConfig()" class="w-full bg-beige-50 border border-beige-300 rounded px-2 py-1 text-xs font-mono text-slate-900 focus:outline-none focus:ring-1 focus:ring-olive-500">
+                  </div>
+                  <div>
+                    <label class="block text-[11px] text-slate-600 mb-0.5">Neurologists:</label>
+                    <input type="number" id="base-doc-neuro" min="1" max="50" value="3" onchange="updateBaseConfig()" class="w-full bg-beige-50 border border-beige-300 rounded px-2 py-1 text-xs font-mono text-slate-900 focus:outline-none focus:ring-1 focus:ring-olive-500">
+                  </div>
+                  <div>
+                    <label class="block text-[11px] text-slate-600 mb-0.5">Orthopedic Surgeons:</label>
+                    <input type="number" id="base-doc-ortho" min="1" max="50" value="3" onchange="updateBaseConfig()" class="w-full bg-beige-50 border border-beige-300 rounded px-2 py-1 text-xs font-mono text-slate-900 focus:outline-none focus:ring-1 focus:ring-olive-500">
+                  </div>
+                </div>
+                <div>
+                  <label class="block text-[11px] text-slate-600 mb-0.5">General Practitioners:</label>
+                  <input type="number" id="base-doc-gp" min="1" max="50" value="4" onchange="updateBaseConfig()" class="w-full bg-beige-50 border border-beige-300 rounded px-2 py-1 text-xs font-mono text-slate-900 focus:outline-none focus:ring-1 focus:ring-olive-500">
+                </div>
+              </div>
+            </div>
+
+            <!-- Fixed Priority / Urgency Factor Formula -->
+            <div class="space-y-2 text-xs pt-2 border-t border-beige-200">
+              <div class="font-semibold text-slate-800 font-mono uppercase text-[11px] text-olive-800">Priority / Urgency Factor Formula</div>
+              <div class="bg-beige-50 border border-beige-300 rounded-lg p-3 font-mono text-[12px] text-olive-900">
+                Urgency Factor = (Severity × 0.5) + (Disease × 0.35) + (Age × 0.15)
+              </div>
+              <p class="text-[10px] text-slate-500">Higher urgency-factor values are sorted first under Priority Wise. Disease defaults to condition severity when no separate disease score is supplied.</p>
+            </div>
+          </div>
+
+          <!-- SPECIALIST DOCTORS LIVE CAPACITY ENGINE -->
+          <div class="dark-card rounded-xl p-5 shadow-md space-y-4">
+            <div class="flex items-center justify-between border-b border-olive-800 pb-3">
+              <div class="flex items-center space-x-2">
+                <i class="fa-solid fa-user-doctor text-olive-400"></i>
+                <h3 class="font-grotesk font-bold text-base text-beige-50">Specialist Doctors Roster</h3>
+              </div>
+              <span class="text-[10px] font-mono text-amber-gold uppercase">Real-Time</span>
+            </div>
+
+            <div id="doctors-roster-list" class="space-y-3"></div>
+          </div>
+
+          <!-- EQUIPMENT & BED INFRASTRUCTURE POOL -->
+          <div class="dark-card rounded-xl p-5 shadow-md space-y-4">
+            <div class="flex items-center justify-between border-b border-olive-800 pb-3">
+              <div class="flex items-center space-x-2">
+                <i class="fa-solid fa-layer-group text-olive-400"></i>
+                <h3 class="font-grotesk font-bold text-base text-beige-50">Resource & Bed Pool</h3>
+              </div>
+              <span class="text-[10px] font-mono text-beige-400">Simulated Outages</span>
+            </div>
+
+            <div id="resources-pool-list" class="space-y-3 text-xs"></div>
+          </div>
+
+          <!-- LIVE AUDIT LOG STREAM -->
+          <div class="glass-card rounded-xl p-5 shadow-sm flex flex-col h-80">
+            <div class="flex items-center justify-between pb-2 border-b border-beige-300 mb-3">
+              <div class="flex items-center space-x-2">
+                <i class="fa-solid fa-terminal text-olive-600"></i>
+                <h3 class="font-grotesk font-bold text-sm text-slate-900">Clinical Event Stream</h3>
+              </div>
+              <button onclick="clearEventLogs()" class="text-[10px] font-mono text-slate-500 hover:text-slate-800 underline">Clear Log</button>
+            </div>
+
+            <div id="event-log-container" class="flex-1 overflow-y-auto space-y-2 pr-1 font-mono text-[11px]"></div>
+          </div>
+
+        </div>
+
+      </div>
+    </div>
+
+    <!-- TAB 2: DEPARTMENT ANALYTICS VIEW -->
+    <div id="tab-2-view" class="hidden space-y-6">
+      
+      <!-- TAB 2 HEADER BANNER -->
+      <div class="glass-card rounded-xl p-5 shadow-sm flex items-center justify-between">
+        <div>
+          <h2 class="font-grotesk font-bold text-xl text-slate-900 flex items-center gap-2">
+            <i class="fa-solid fa-chart-column text-olive-600"></i>
+            Departmental Analytics & Resource Metrics
+          </h2>
+          <p class="text-xs text-slate-600 mt-1">
+            Real-time multi-department operational breakdowns, bed occupancies, waiting vs active treatment times, and doctor staffing levels.
+          </p>
+        </div>
+        <span class="text-xs font-mono bg-olive-100 text-olive-800 px-3 py-1.5 rounded-lg border border-olive-300 font-semibold">
+          7 Active Departments
+        </span>
+      </div>
+
+      <!-- 4 ANALYTICS GRAPHS GRID -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+        <div class="glass-card rounded-xl p-5 shadow-sm space-y-3">
+          <div class="flex items-center justify-between pb-3 border-b border-beige-300">
+            <div>
+              <h3 class="font-grotesk font-bold text-base text-slate-900 flex items-center gap-2">
+                <i class="fa-solid fa-bed text-olive-600"></i>
+                1. Bed Occupancy (Used vs. Unused)
+              </h3>
+              <p class="text-[11px] text-slate-500">Departmental bed utilization across Cardiology, Emergency, ICU, Surgery, Neurology, Orthopedics, General Care</p>
+            </div>
+            <span class="text-[10px] font-mono bg-beige-200 text-slate-800 px-2 py-0.5 rounded">Stacked Bed Capacity</span>
+          </div>
+          <div class="h-72"><canvas id="chart-dept-beds"></canvas></div>
+        </div>
+
+        <div class="glass-card rounded-xl p-5 shadow-sm space-y-3">
+          <div class="flex items-center justify-between pb-3 border-b border-beige-300">
+            <div>
+              <h3 class="font-grotesk font-bold text-base text-slate-900 flex items-center gap-2">
+                <i class="fa-solid fa-stopwatch text-amber-gold"></i>
+                2. Queue Wait Time vs. Active Treatment Time
+              </h3>
+              <p class="text-[11px] text-slate-500">Average duration patients spend waiting in triage vs active treatment per department (mins)</p>
+            </div>
+            <span class="text-[10px] font-mono bg-beige-200 text-slate-800 px-2 py-0.5 rounded">Time Comparison</span>
+          </div>
+          <div class="h-72"><canvas id="chart-wait-vs-treatment"></canvas></div>
+        </div>
+
+        <div class="glass-card rounded-xl p-5 shadow-sm space-y-3">
+          <div class="flex items-center justify-between pb-3 border-b border-beige-300">
+            <div>
+              <h3 class="font-grotesk font-bold text-base text-slate-900 flex items-center gap-2">
+                <i class="fa-solid fa-user-doctor text-olive-600"></i>
+                3. Specialist Doctor Status (Busy vs. Free)
+              </h3>
+              <p class="text-[11px] text-slate-500">Active engagement vs available capacity of specialist doctors separated by department</p>
+            </div>
+            <span class="text-[10px] font-mono bg-beige-200 text-slate-800 px-2 py-0.5 rounded">Specialist Staffing</span>
+          </div>
+          <div class="h-72"><canvas id="chart-dept-doctors"></canvas></div>
+        </div>
+
+        <div class="glass-card rounded-xl p-5 shadow-sm space-y-3">
+          <div class="flex items-center justify-between pb-3 border-b border-beige-300">
+            <div>
+              <h3 class="font-grotesk font-bold text-base text-slate-900 flex items-center gap-2">
+                <i class="fa-solid fa-hospital-user text-crimson-red"></i>
+                4. Patient Load Distribution (Queued vs. Admitted)
+              </h3>
+              <p class="text-[11px] text-slate-500">Breakdown of waiting triage patients vs active admitted cases across all departments</p>
+            </div>
+            <span class="text-[10px] font-mono bg-beige-200 text-slate-800 px-2 py-0.5 rounded">Patient Flow</span>
+          </div>
+          <div class="h-72"><canvas id="chart-dept-patients"></canvas></div>
+        </div>
+
+      </div>
+
+    </div>
+
+    <!-- TAB 3: ADMISSION LOGIC VIEW -->
+    <div id="tab-3-view" class="hidden space-y-6">
+      
+      <!-- TAB 3 HEADER BANNER -->
+      <div class="glass-card rounded-xl p-5 shadow-sm flex items-center justify-between">
+        <div>
+          <h2 class="font-grotesk font-bold text-xl text-slate-900 flex items-center gap-2">
+            <i class="fa-solid fa-brain text-olive-600"></i>
+            Admission Logic & Queuing System Control
+          </h2>
+          <p class="text-xs text-slate-600 mt-1">
+            Select and compare the 3 dynamic patient admission options to govern resource allocation and triage queue behavior.
+          </p>
+        </div>
+        <div id="active-strategy-badge" class="text-xs font-mono bg-olive-100 text-olive-800 px-3 py-1.5 rounded-lg border border-olive-300 font-bold">
+          Active: Priority Wise
+        </div>
+      </div>
+
+      <!-- 3 ADMISSION OPTIONS CARDS -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+
+        <!-- OPTION 1: PRIORITY WISE -->
+        <div id="card-strat-priority" class="glass-card rounded-xl p-5 shadow-md flex flex-col justify-between border-2 transition-all">
+          <div class="space-y-3">
+            <div class="flex items-center justify-between">
+              <span class="text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded bg-olive-100 text-olive-800 border border-olive-300">Option 1</span>
+              <i class="fa-solid fa-layer-group text-olive-600 text-lg"></i>
+            </div>
+            <h3 class="font-grotesk font-bold text-lg text-slate-900">Priority Wise</h3>
+            <p class="text-xs text-slate-600 leading-relaxed">
+              Dynamically ranks patients using a multi-factor score: Clinical Severity (L1-L5), Wait Time Escalation, and Specialist Doctor Matching.
+            </p>
+            <div class="bg-beige-100 p-2.5 rounded-lg text-[11px] font-mono text-slate-800 border border-beige-300">
+              Urgency Factor = (Severity × 0.5) + (Disease × 0.35) + (Age × 0.15)
+            </div>
+            <ul class="text-[11px] text-slate-600 space-y-1 list-disc list-inside">
+              <li>Prevents mortality in high-acuity cases</li>
+              <li>Escalates waiting patients over time</li>
+              <li>Optimal for Emergency & ICU triage</li>
+            </ul>
+          </div>
+          <div class="pt-4 mt-4 border-t border-beige-200 flex items-center justify-between">
+            <span id="badge-status-priority" class="text-[11px] font-mono font-bold text-olive-700">Active Strategy</span>
+            <button onclick="setStrategy('priority')" class="bg-olive-700 hover:bg-olive-800 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold transition">
+              Select Priority Wise
+            </button>
+          </div>
+        </div>
+
+        <!-- OPTION 2: FIRST COME FIRST SERVE -->
+        <div id="card-strat-fcfs" class="glass-card rounded-xl p-5 shadow-md flex flex-col justify-between border-2 transition-all">
+          <div class="space-y-3">
+            <div class="flex items-center justify-between">
+              <span class="text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300">Option 2</span>
+              <i class="fa-solid fa-clock-rotate-left text-amber-gold text-lg"></i>
+            </div>
+            <h3 class="font-grotesk font-bold text-lg text-slate-900">First Come First Serve (FCFS)</h3>
+            <p class="text-xs text-slate-600 leading-relaxed">
+              Strict FIFO (First-In, First-Out) queuing system. Patients are admitted strictly in the order they arrive, regardless of medical severity or resource needs.
+            </p>
+            <div class="bg-beige-100 p-2.5 rounded-lg text-[11px] font-mono text-slate-800 border border-beige-300">
+              Formula: Wait Time (Descending)
+            </div>
+            <ul class="text-[11px] text-slate-600 space-y-1 list-disc list-inside">
+              <li>Ensures maximum waiting fairness</li>
+              <li>Prevents low-severity starvation</li>
+              <li>May increase mortality for critical cases</li>
+            </ul>
+          </div>
+          <div class="pt-4 mt-4 border-t border-beige-200 flex items-center justify-between">
+            <span id="badge-status-fcfs" class="text-[11px] font-mono text-slate-500">Inactive</span>
+            <button onclick="setStrategy('fcfs')" class="bg-slate-700 hover:bg-slate-800 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold transition">
+              Select FCFS
+            </button>
+          </div>
+        </div>
+
+        <!-- OPTION 3: LEAST RESOURCES FIRST -->
+        <div id="card-strat-lrf" class="glass-card rounded-xl p-5 shadow-md flex flex-col justify-between border-2 transition-all">
+          <div class="space-y-3">
+            <div class="flex items-center justify-between">
+              <span class="text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300">Option 3</span>
+              <i class="fa-solid fa-bolt text-emerald-600 text-lg"></i>
+            </div>
+            <h3 class="font-grotesk font-bold text-lg text-slate-900">Least Resources First (LRF)</h3>
+            <p class="text-xs text-slate-600 leading-relaxed">
+              Prioritizes patients who consume the lowest resource footprint (shortest treatment duration, fewest nurses, no OR or ICU bed requirement).
+            </p>
+            <div class="bg-beige-100 p-2.5 rounded-lg text-[11px] font-mono text-slate-800 border border-beige-300">
+              Formula: Min (Time + Nurses + OR/ICU Overhead)
+            </div>
+            <ul class="text-[11px] text-slate-600 space-y-1 list-disc list-inside">
+              <li>Maximizes patient discharge throughput</li>
+              <li>Clears quick consultations rapidly</li>
+              <li>De-prioritizes high-resource ICU cases</li>
+            </ul>
+          </div>
+          <div class="pt-4 mt-4 border-t border-beige-200 flex items-center justify-between">
+            <span id="badge-status-lrf" class="text-[11px] font-mono text-slate-500">Inactive</span>
+            <button onclick="setStrategy('lrf')" class="bg-slate-700 hover:bg-slate-800 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold transition">
+              Select LRF
+            </button>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- COMPARATIVE ANALYTICS PANEL -->
+      <div class="glass-card rounded-xl p-5 shadow-sm space-y-4">
+        <h3 class="font-grotesk font-bold text-base text-slate-900 flex items-center gap-2">
+          <i class="fa-solid fa-chart-pie text-olive-600"></i>
+          Admission Logic Performance Comparison
+        </h3>
+        
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr class="font-mono uppercase text-[11px] bg-beige-100/70 border-b border-beige-300 text-slate-600">
+                <th class="py-2.5 px-3">Admission Option</th>
+                <th class="py-2.5 px-3">Primary Target</th>
+                <th class="py-2.5 px-3">Queue Ordering Rule</th>
+                <th class="py-2.5 px-3">Throughput Rate</th>
+                <th class="py-2.5 px-3">Critical Mortality Mitigation</th>
+                <th class="py-2.5 px-3">Current Status</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-beige-200">
+              <tr>
+                <td class="py-3 px-3 font-bold text-slate-900">1. Priority Wise</td>
+                <td class="py-3 px-3 text-slate-700">Survival & Acuity Preservation</td>
+                <td class="py-3 px-3 font-mono text-[11px]">Severity × Weight + Wait Bonus</td>
+                <td class="py-3 px-3 font-semibold text-olive-700">High (Critical focus)</td>
+                <td class="py-3 px-3 font-bold text-emerald-700">Optimal (100%)</td>
+                <td id="status-row-priority" class="py-3 px-3 font-mono font-bold text-olive-700">ACTIVE</td>
+              </tr>
+              <tr>
+                <td class="py-3 px-3 font-bold text-slate-900">2. First Come First Serve</td>
+                <td class="py-3 px-3 text-slate-700">Fairness & Arrival Equity</td>
+                <td class="py-3 px-3 font-mono text-[11px]">Arrival Time (FIFO)</td>
+                <td class="py-3 px-3 font-semibold text-amber-700">Moderate</td>
+                <td class="py-3 px-3 font-bold text-amber-700">Moderate (Risk of delay)</td>
+                <td id="status-row-fcfs" class="py-3 px-3 font-mono text-slate-400">INACTIVE</td>
+              </tr>
+              <tr>
+                <td class="py-3 px-3 font-bold text-slate-900">3. Least Resources First</td>
+                <td class="py-3 px-3 text-slate-700">Throughput & Fast Turnaround</td>
+                <td class="py-3 px-3 font-mono text-[11px]">Min Resource Overhead</td>
+                <td class="py-3 px-3 font-bold text-emerald-700">Highest (Fast discharges)</td>
+                <td class="py-3 px-3 font-bold text-crimson-red">Lower (Defers complex cases)</td>
+                <td id="status-row-lrf" class="py-3 px-3 font-mono text-slate-400">INACTIVE</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- SYSTEM INFO MODAL: PRIORITY SCALE & DYNAMIC MORTALITY SYSTEM -->
+  <div id="modal-info" class="fixed inset-0 z-50 hidden bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="glass-card max-w-3xl w-full rounded-2xl shadow-2xl overflow-hidden border border-amber-gold/50 flex flex-col max-h-[90vh]">
+      
+      <!-- Modal Header -->
+      <div class="bg-[#1C221E] text-beige-50 px-6 py-4 flex items-center justify-between border-b border-olive-700">
+        <div class="flex items-center space-x-3">
+          <div class="w-9 h-9 rounded-xl bg-amber-gold/20 text-amber-gold flex items-center justify-center border border-amber-gold/40">
+            <i class="fa-solid fa-book-medical text-base"></i>
+          </div>
+          <div>
+            <h3 class="font-grotesk font-bold text-lg text-beige-50">Triage Priority Scale & Dynamic Mortality Guide</h3>
+            <p class="text-xs text-amber-gold">Hospital Resource Allocation & Dynamic Mortality Engine Documentation</p>
+          </div>
+        </div>
+        <button onclick="closeInfoModal()" class="text-beige-400 hover:text-beige-100 transition text-xl px-2">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <!-- Modal Body Content -->
+      <div class="p-6 overflow-y-auto space-y-6 text-xs text-slate-800">
+        
+        <!-- SECTION 1: PRIORITY SCALE SYSTEM -->
+        <div class="bg-white p-4 rounded-xl border border-beige-300 space-y-3 shadow-sm">
+          <div class="flex items-center space-x-2 border-b border-beige-200 pb-2">
+            <i class="fa-solid fa-arrow-up-wide-short text-olive-600 text-sm"></i>
+            <h4 class="font-grotesk font-bold text-sm text-slate-900 uppercase tracking-wide">1. Dynamic Priority Points Calculation Engine</h4>
+          </div>
+          <p class="leading-relaxed">
+            Every queued patient is dynamically evaluated on each simulation tick using a weighted score formula. Higher scores move patients to the front of the triage queue:
+          </p>
+          
+          <div class="bg-beige-100 p-3 rounded-lg font-mono text-[11px] text-olive-900 border border-beige-300">
+            Urgency Factor = (Severity × 0.5) + (Disease × 0.35) + (Age × 0.15)
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+            <div class="bg-beige-50 p-3 rounded-lg border border-beige-200">
+              <div class="font-bold text-olive-800 mb-1"><i class="fa-solid fa-check-circle mr-1"></i> Positive Score Factors</div>
+              <ul class="list-disc list-inside space-y-1 text-slate-700 text-[11px]">
+                <li><strong>Severity:</strong> contributes Severity × 0.5.</li>
+                <li><strong>Disease:</strong> contributes Disease × 0.35; the condition severity is used when no separate disease score is supplied.</li>
+                <li><strong>Age:</strong> contributes Age × 0.15. Higher urgency-factor values sort first under Priority Wise.</li>
+              </ul>
+            </div>
+
+            <div class="bg-beige-50 p-3 rounded-lg border border-beige-200">
+              <div class="font-bold text-crimson-red mb-1"><i class="fa-solid fa-minus-circle mr-1"></i> Negative Adjustments & Offsets</div>
+              <ul class="list-disc list-inside space-y-1 text-slate-700 text-[11px]">
+                <li><strong>Staffing/resource events:</strong> affect admission capacity and treatment duration; they do not change the urgency formula.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <!-- SECTION 2: DYNAMIC MORTALITY RISK SYSTEM -->
+        <div class="bg-white p-4 rounded-xl border border-crimson-red/30 space-y-3 shadow-sm">
+          <div class="flex items-center space-x-2 border-b border-beige-200 pb-2">
+            <i class="fa-solid fa-heart-crack text-crimson-red text-sm"></i>
+            <h4 class="font-grotesk font-bold text-sm text-crimson-red uppercase tracking-wide">2. Dynamic Mortality System Protocol</h4>
+          </div>
+          <p class="leading-relaxed text-slate-700">
+            Patients held in triage past a <strong>2-minute initial waiting grace period</strong> accumulate dynamic mortality risk in 10-minute intervals. Mortality risk is calculated separately from the urgency factor and is driven by triage severity and waiting time:
+          </p>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3 font-mono">
+            <div class="bg-crimson-red/10 border border-crimson-red/30 p-3 rounded-xl">
+              <div class="font-bold text-crimson-red text-xs">Level 5 (Critical / Resus)</div>
+              <div class="text-lg font-bold text-slate-900 mt-1">25% Base</div>
+              <div class="text-[11px] text-slate-600 mt-0.5">+5% every 10 min (after 2m)</div>
+            </div>
+
+            <div class="bg-amber-warm/10 border border-amber-warm/40 p-3 rounded-xl">
+              <div class="font-bold text-amber-warm text-xs">Level 4 (Severe / Life-Th)</div>
+              <div class="text-lg font-bold text-slate-900 mt-1">15% Base</div>
+              <div class="text-[11px] text-slate-600 mt-0.5">+5% every 10 min (after 2m)</div>
+            </div>
+
+            <div class="bg-amber-gold/10 border border-amber-gold/40 p-3 rounded-xl">
+              <div class="font-bold text-amber-gold text-xs">Level 3 (High / Emergent)</div>
+              <div class="text-lg font-bold text-slate-900 mt-1">10% Base</div>
+              <div class="text-[11px] text-slate-600 mt-0.5">+5% every 10 min (after 2m)</div>
+            </div>
+          </div>
+
+          <p class="text-[11px] text-slate-600 italic">
+            * Note: Non-critical patients (L1 & L2) experience baseline zero or minimal mortality risk (+1% every 10 min after 2m), maintaining primary focus on high-acuity resuscitation.
+          </p>
+        </div>
+
+        <!-- SECTION 3: STAFFING ALLOCATION & SIMULATION EVENTS -->
+        <div class="bg-white p-4 rounded-xl border border-amber-gold/40 space-y-3 shadow-sm">
+          <div class="flex items-center space-x-2 border-b border-beige-200 pb-2">
+            <i class="fa-solid fa-user-nurse text-amber-gold text-sm"></i>
+            <h4 class="font-grotesk font-bold text-sm text-slate-900 uppercase tracking-wide">3. Staffing, Peak Hours & Resource Events</h4>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div class="bg-beige-50 p-3 rounded-lg border border-beige-200">
+              <div class="font-bold text-olive-800 mb-1">Normal Staffing Allocation</div>
+              <ul class="list-disc list-inside space-y-1 text-slate-700 text-[11px]">
+                <li><strong>L1:</strong> 1 nurse, no doctor.</li>
+                <li><strong>L2–L3:</strong> 1 specialist doctor (or available normal/cross-department doctor where allowed) + 1 nurse.</li>
+                <li><strong>L4–L5:</strong> 1 specialist doctor + 2 nurses.</li>
+                <li>Default nurse pool: <strong>15</strong>; the Base Configuration field can increase or decrease it.</li>
+              </ul>
+            </div>
+            <div class="bg-amber-gold/10 p-3 rounded-lg border border-amber-gold/30">
+              <div class="font-bold text-amber-warm mb-1">Staff Shortage</div>
+              <ul class="list-disc list-inside space-y-1 text-slate-700 text-[11px]">
+                <li>Reduces each doctor and nurse pool's effective capacity by <strong>20%</strong>.</li>
+                <li>L1 remains nurse-led.</li>
+                <li>L2–L3 can receive assistance from another department's available doctor.</li>
+                <li>L4–L5 still require the appropriate specialist.</li>
+              </ul>
+            </div>
+            <div class="bg-crimson-red/10 p-3 rounded-lg border border-crimson-red/30">
+              <div class="font-bold text-crimson-red mb-1">Resource Failure</div>
+              <ul class="list-disc list-inside space-y-1 text-slate-700 text-[11px]">
+                <li>ICU beds and ORs become unavailable.</li>
+                <li>Surgery/treatment duration increases by <strong>30%</strong>.</li>
+                <li>Doctor pools are not reduced by Resource Failure.</li>
+              </ul>
+            </div>
+            <div class="bg-olive-50 p-3 rounded-lg border border-olive-200">
+              <div class="font-bold text-olive-800 mb-1">Peak Hour System</div>
+              <ul class="list-disc list-inside space-y-1 text-slate-700 text-[11px]">
+                <li>Runs automatically every <strong>3 simulation hours</strong>.</li>
+                <li>Each peak period lasts <strong>15 simulation minutes</strong>, not real-world minutes.</li>
+                <li>During peak, random walking-customer arrivals increase from every 2–4 simulation minutes to every 1–2 simulation minutes.</li>
+                <li>The current state is shown beside the simulation clock and can be switched OFF with the Peak Hours button.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <!-- SECTION 4: HOSPITAL EFFICIENCY INDEX -->
+        <div class="bg-white p-4 rounded-xl border border-beige-300 space-y-3 shadow-sm">
+          <div class="flex items-center space-x-2 border-b border-beige-200 pb-2">
+            <i class="fa-solid fa-chart-pie text-olive-600 text-sm"></i>
+            <h4 class="font-grotesk font-bold text-sm text-slate-900 uppercase tracking-wide">3. Hospital Efficiency Index Calculation</h4>
+          </div>
+          <p class="leading-relaxed">
+            The overall <strong>Hospital Efficiency Percentage</strong> represents operational throughput, survival rates, and triage promptness:
+          </p>
+          <div class="bg-beige-100 p-3 rounded-lg font-mono text-[11px] text-slate-900 border border-beige-300">
+            Hospital Efficiency = Math.max(0, 100% - (Mortality Rate × 2.5) - (Avg Queue Wait Mins × 0.8))
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="bg-beige-100 px-6 py-3 border-t border-beige-300 flex justify-end">
+        <button onclick="closeInfoModal()" class="bg-olive-700 hover:bg-olive-800 text-white font-bold px-5 py-1.5 rounded-lg text-xs transition">Close Guide</button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- PATIENT ADMISSION MODAL -->
+  <div id="modal-add-patient" class="fixed inset-0 z-50 hidden bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="glass-card max-w-xl w-full rounded-2xl shadow-2xl overflow-hidden border border-olive-400">
+      
+      <!-- Modal Header -->
+      <div class="bg-[#1C221E] text-beige-50 px-6 py-4 flex items-center justify-between border-b border-olive-700">
+        <div class="flex items-center space-x-2">
+          <div class="w-8 h-8 rounded-lg bg-olive-700 text-amber-gold flex items-center justify-center">
+            <i class="fa-solid fa-user-plus text-sm"></i>
+          </div>
+          <div>
+            <h3 class="font-grotesk font-bold text-base text-beige-50">Triage New Patient</h3>
+            <p class="text-[11px] text-beige-400">Manual admission & auto-populating disease registry</p>
+          </div>
+        </div>
+        <button onclick="closeAddPatientModal()" class="text-beige-400 hover:text-beige-100 transition text-lg px-2">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <!-- Modal Body Form -->
+      <form id="form-add-patient" onsubmit="handlePatientSubmit(event)" class="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+        
+        <div class="bg-olive-50/80 p-3.5 rounded-xl border border-olive-200 space-y-1.5">
+          <label class="block text-xs font-mono font-bold uppercase text-olive-800">
+            <i class="fa-solid fa-stethoscope mr-1"></i> Pre-Defined Condition / Injury Type
+          </label>
+          <select id="input-condition-type" onchange="onConditionTypeSelected()" class="w-full bg-white border border-olive-300 rounded-lg px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-olive-500">
+            <option value="">-- Custom Condition (Select preset or enter manually) --</option>
+            <option value="cardiac_mi">Cardiac Arrest / Acute MI (Severity L5)</option>
+            <option value="acute_stroke">Acute Ischemic Stroke (Severity L5)</option>
+            <option value="polytrauma">Major Polytrauma / Gunshot Wound (Severity L5)</option>
+            <option value="complex_fracture">Complex Open Fracture (Severity L3)</option>
+            <option value="appendicitis">Acute Appendicitis w/ Peritonitis (Severity L3)</option>
+            <option value="resp_distress">Severe Respiratory Distress / ARDS (Severity L4)</option>
+            <option value="laceration">Deep Laceration / Traumatic Cut (Severity L2)</option>
+            <option value="burn_3rd">Severe 3rd Degree Thermal Burn (Severity L4)</option>
+            <option value="septic_shock">Sepsis / Septic Shock (Severity L5)</option>
+            <option value="heart_failure">Acute Decompensated Heart Failure (Severity L4)</option>
+            <option value="food_poisoning">Food Poisoning / Severe Dehydration (Severity L1)</option>
+            <option value="anaphylaxis">Anaphylactic Shock (Severity L4)</option>
+            <option value="general_checkup">General Checkup / Minor Consultation (General Care - L1)</option>
+          </select>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-mono uppercase text-slate-700 mb-1">Patient Name</label>
+            <input type="text" id="input-patient-name" placeholder="e.g. Eleanor Vance" required class="w-full bg-beige-50 border border-beige-300 rounded-lg px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-olive-500">
+          </div>
+
+          <div>
+            <label class="block text-xs font-mono uppercase text-slate-700 mb-1">Age</label>
+            <input type="number" id="input-patient-age" min="1" max="110" value="45" required class="w-full bg-beige-50 border border-beige-300 rounded-lg px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-olive-500">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-mono uppercase text-slate-700 mb-1">Severity Level (1 to 5)</label>
+            <select id="input-severity" class="w-full bg-beige-50 border border-beige-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-olive-500">
+              <option value="1">Level 1 - Low / Non-Urgent</option>
+              <option value="2">Level 2 - Moderate / Urgent</option>
+              <option value="3">Level 3 - High / Emergent</option>
+              <option value="4">Level 4 - Severe / Life-Threatening</option>
+              <option value="5" selected>Level 5 - Critical / Resuscitation</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block text-xs font-mono uppercase text-slate-700 mb-1">Required Doctor Specialty</label>
+            <select id="input-doctor-spec" class="w-full bg-beige-50 border border-beige-300 rounded-lg px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-1 focus:ring-olive-500">
+              <option value="ER Physicians">ER Physician</option>
+              <option value="Cardiologists">Cardiologist</option>
+              <option value="General Surgeons">General Surgeon</option>
+              <option value="Intensivists">Intensivist</option>
+              <option value="Neurologists">Neurologist</option>
+              <option value="Orthopedic Surgeons">Orthopedic Surgeon</option>
+              <option value="General Practitioners">General Practitioner</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-mono uppercase text-slate-700 mb-1">Department</label>
+            <select id="input-dept" class="w-full bg-beige-50 border border-beige-300 rounded-lg px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-olive-500">
+              <option value="Emergency">Emergency</option>
+              <option value="Cardiology">Cardiology</option>
+              <option value="Surgery">Surgery</option>
+              <option value="ICU">ICU</option>
+              <option value="Neurology">Neurology</option>
+              <option value="Orthopedics">Orthopedics</option>
+              <option value="General Care">General Care</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block text-xs font-mono uppercase text-slate-700 mb-1">Bed Type Required</label>
+            <select id="input-bed-type" class="w-full bg-beige-50 border border-beige-300 rounded-lg px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-olive-500">
+              <option value="General">General Bed</option>
+              <option value="ICU">ICU Bed</option>
+              <option value="None">None (Outpatient)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-3 gap-3 bg-beige-100 p-3 rounded-xl border border-beige-300 text-xs">
+          <div>
+            <label class="block font-mono text-[11px] text-slate-700 mb-1">Operating Room?</label>
+            <select id="input-or-needed" class="w-full bg-white border border-beige-300 rounded px-2 py-1">
+              <option value="no">No OR</option>
+              <option value="yes">Requires OR</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block font-mono text-[11px] text-slate-700 mb-1">Nurses Count</label>
+            <input type="number" id="input-nurses-needed" min="1" max="5" value="2" class="w-full bg-white border border-beige-300 rounded px-2 py-1">
+          </div>
+
+          <div>
+            <label class="block font-mono text-[11px] text-slate-700 mb-1">Ambulance?</label>
+            <select id="input-ambulance" class="w-full bg-white border border-beige-300 rounded px-2 py-1">
+              <option value="no">Self Arrival</option>
+              <option value="yes">Ambulance</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-mono uppercase text-slate-700 mb-1">Est. Treatment / Surgery Time: <span id="display-treatment-mins" class="font-bold text-olive-700">25 mins</span></label>
+          <input type="range" id="input-treatment-time" min="5" max="60" step="5" value="25" oninput="document.getElementById('display-treatment-mins').innerText = this.value + ' mins'" class="w-full accent-olive-600">
+        </div>
+
+        <div class="pt-3 flex items-center justify-end space-x-3 border-t border-beige-300">
+          <button type="button" onclick="closeAddPatientModal()" class="px-4 py-2 text-xs font-medium text-slate-700 hover:text-slate-900">Cancel</button>
+          <button type="submit" class="bg-olive-700 hover:bg-olive-800 text-beige-50 px-5 py-2 rounded-xl text-xs font-bold shadow-md transition">+ Submit & Queue Patient</button>
+        </div>
+
+      </form>
+    </div>
+  </div>
+
+  <!-- FORCE OVERRIDE ADMISSION MODAL -->
+  <div id="modal-force-admit" class="fixed inset-0 z-50 hidden bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="glass-card max-w-md w-full rounded-2xl shadow-2xl p-6 border border-crimson-red space-y-4">
+      <div class="flex items-center space-x-2 text-crimson-red">
+        <i class="fa-solid fa-triangle-exclamation text-xl"></i>
+        <h3 class="font-grotesk font-bold text-lg">Commander Force Override</h3>
+      </div>
+      <p id="force-admit-text" class="text-xs text-slate-700 leading-relaxed">
+        Required doctors or beds are currently unavailable. Are you sure you wish to force admit this patient and override standard triage capacity?
+      </p>
+      <div class="flex justify-end space-x-2 pt-2">
+        <button onclick="closeForceAdmitModal()" class="px-4 py-2 text-xs font-medium text-slate-600">Cancel</button>
+        <button id="btn-confirm-force-admit" onclick="confirmForceAdmit()" class="bg-crimson-red text-white px-4 py-2 rounded-lg text-xs font-bold shadow hover:bg-crimson-bright">Confirm Override Admission</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- LIVE AMBULANCE / EVENT POPOUTS -->
+  <div id="ambulance-popout-stack" class="toast-stack" aria-live="polite"></div>
+
+  <!-- JAVASCRIPT ENGINE -->
+  <script>
+
+    const state = {
+      simTick: 0,
+      // 1 real second at 1x = 1 simulation minute.
+      simMinutes: 8 * 60,
+      isRunning: false,
+      simSpeed: 1,
+      simIntervalId: null,
+      rafId: null,
+      lastTickTimestamp: null,
+      randomArrivalCountdown: null,
+      ambulanceCallCounter: 1,
+      // Automatic ambulances: one arrival every 30-40 simulation minutes.
+      // The warning appears when the projected real-time ETA reaches 10 seconds.
+      nextAmbulanceSimMinute: 8 * 60 + randomBetween(30, 40),
+      incomingAmbulances: [],
+      strategy: 'priority', // 'priority', 'fcfs', or 'lrf'
+      
+      priorityWeights: {
+        severity: 25,
+        waitTime: 1.5,
+        doctorAvailBonus: 15
+      },
+
+      autoAdmitEnabled: true,
+      staffShortageEnabled: false,
+      resourceFailureEnabled: false,
+      randomPatientGenEnabled: false,
+      peakHourEnabled: true,
+      
+      stats: {
+        totalDischarged: 0,
+        totalFatalities: 0
+      },
+
+      departmentBeds: {
+        'Cardiology': 6,
+        'Emergency': 8,
+        'ICU': 8,
+        'Surgery': 6,
+        'Neurology': 4,
+        'Orthopedics': 5,
+        'General Care': 6
+      },
+
+      doctors: {
+        'ER Physicians': { dept: 'Emergency', total: 6, allocated: 0, outage: false, icon: 'fa-user-doctor' },
+        'Cardiologists': { dept: 'Cardiology', total: 4, allocated: 0, outage: false, icon: 'fa-heart-pulse' },
+        'General Surgeons': { dept: 'Surgery', total: 5, allocated: 0, outage: false, icon: 'fa-scalpel' },
+        'Intensivists': { dept: 'ICU', total: 4, allocated: 0, outage: false, icon: 'fa-bed-pulse' },
+        'Neurologists': { dept: 'Neurology', total: 3, allocated: 0, outage: false, icon: 'fa-brain' },
+        'Orthopedic Surgeons': { dept: 'Orthopedics', total: 3, allocated: 0, outage: false, icon: 'fa-bone' },
+        'General Practitioners': { dept: 'General Care', total: 4, allocated: 0, outage: false, icon: 'fa-stethoscope' }
+      },
+
+      resources: {
+        generalBeds: { total: 25, allocated: 0, outage: false },
+        icuBeds: { total: 10, allocated: 0, outage: false },
+        operatingRooms: { total: 6, allocated: 0, outage: false },
+        nurses: { total: 30, allocated: 0, outage: false },
+        ambulances: { total: 8, allocated: 0, outage: false }
+      },
+
+      queue: [],
+      admitted: [],
+      patientIdCounter: 101,
+      logs: [],
+
+      strategyMetrics: {
+        priority: { count: 0, totalWait: 0 },
+        fcfs: { count: 0, totalWait: 0 },
+        lrf: { count: 0, totalWait: 0 }
+      },
+      
+      pendingForcePatientId: null,
+      activeTab: 1
+    };
+
+    const CONDITIONS_DATABASE = {
+      cardiac_mi: { name: 'Cardiac Arrest / Acute MI', dept: 'Cardiology', doctorSpec: 'Cardiologists', severity: 5, bedType: 'ICU', orRequired: 'yes', nurses: 3, ambulance: 'yes', treatmentTime: 30 },
+      acute_stroke: { name: 'Acute Ischemic Stroke', dept: 'Neurology', doctorSpec: 'Neurologists', severity: 5, bedType: 'ICU', orRequired: 'no', nurses: 2, ambulance: 'yes', treatmentTime: 25 },
+      polytrauma: { name: 'Major Polytrauma / Gunshot', dept: 'Emergency', doctorSpec: 'General Surgeons', severity: 5, bedType: 'ICU', orRequired: 'yes', nurses: 4, ambulance: 'yes', treatmentTime: 40 },
+      complex_fracture: { name: 'Complex Open Fracture', dept: 'Orthopedics', doctorSpec: 'Orthopedic Surgeons', severity: 3, bedType: 'General', orRequired: 'yes', nurses: 2, ambulance: 'no', treatmentTime: 20 },
+      appendicitis: { name: 'Acute Appendicitis', dept: 'Surgery', doctorSpec: 'General Surgeons', severity: 3, bedType: 'General', orRequired: 'yes', nurses: 1, ambulance: 'no', treatmentTime: 18 },
+      resp_distress: { name: 'Severe Respiratory Distress', dept: 'ICU', doctorSpec: 'Intensivists', severity: 4, bedType: 'ICU', orRequired: 'no', nurses: 2, ambulance: 'yes', treatmentTime: 22 },
+      laceration: { name: 'Deep Laceration / Traumatic Cut', dept: 'Emergency', doctorSpec: 'ER Physicians', severity: 2, bedType: 'General', orRequired: 'no', nurses: 1, ambulance: 'no', treatmentTime: 10 },
+      burn_3rd: { name: 'Severe 3rd Degree Thermal Burn', dept: 'Emergency', doctorSpec: 'General Surgeons', severity: 4, bedType: 'ICU', orRequired: 'yes', nurses: 3, ambulance: 'yes', treatmentTime: 35 },
+      septic_shock: { name: 'Sepsis / Septic Shock', dept: 'ICU', doctorSpec: 'Intensivists', severity: 5, bedType: 'ICU', orRequired: 'no', nurses: 3, ambulance: 'yes', treatmentTime: 28 },
+      heart_failure: { name: 'Acute Heart Failure', dept: 'Cardiology', doctorSpec: 'Cardiologists', severity: 4, bedType: 'ICU', orRequired: 'no', nurses: 2, ambulance: 'yes', treatmentTime: 24 },
+      food_poisoning: { name: 'Food Poisoning / GI', dept: 'Emergency', doctorSpec: 'ER Physicians', severity: 1, bedType: 'General', orRequired: 'no', nurses: 1, ambulance: 'no', treatmentTime: 8 },
+      anaphylaxis: { name: 'Anaphylactic Shock', dept: 'Emergency', doctorSpec: 'ER Physicians', severity: 4, bedType: 'ICU', orRequired: 'no', nurses: 2, ambulance: 'yes', treatmentTime: 15 },
+      general_checkup: { name: 'General Checkup / Minor Consultation', dept: 'General Care', doctorSpec: 'General Practitioners', severity: 1, bedType: 'General', orRequired: 'no', nurses: 1, ambulance: 'no', treatmentTime: 10 }
+    };
+
+    let chartUtilization = null, chartAcuity = null, chartStrategy = null;
+    let chartDeptBeds = null, chartWaitVsTreatment = null, chartDeptDoctors = null, chartDeptPatients = null;
+
+    function openInfoModal() {
+      document.getElementById('modal-info').classList.remove('hidden');
+    }
+
+    function closeInfoModal() {
+      document.getElementById('modal-info').classList.add('hidden');
+    }
+
+    function calculateMortalityRisk(patient) {
+      const waitOver = Math.max(0, Number(patient.waitTime) - 2);
+      let baseRisk = 0;
+      let riskIncreaseEvery10Min = 5;
+
+      if (patient.severity === 5) baseRisk = 25;
+      else if (patient.severity === 4) baseRisk = 15;
+      else if (patient.severity === 3) baseRisk = 10;
+      else if (patient.severity === 2) { baseRisk = 2; riskIncreaseEvery10Min = 1; }
+      else { baseRisk = 0; riskIncreaseEvery10Min = 0; }
+
+      // Mortality risk rises in discrete 10-simulation-minute increments
+      // after the initial 2-minute grace period, rather than every minute.
+      const completed10MinIntervals = Math.floor(waitOver / 10);
+      const risk = baseRisk + (completed10MinIntervals * riskIncreaseEvery10Min);
+      return Math.min(100, Math.round(risk));
+    }
+
+    function randomBetween(min, max) {
+      return Math.floor(Math.random() * (max - min + 1)) + min;
+    }
+
+    function isPeakHour() {
+      if (!state.peakHourEnabled) return false;
+      const elapsedFromStart = Math.max(0, state.simMinutes - 8 * 60);
+      return elapsedFromStart >= 180 && (elapsedFromStart % 180) < 15;
+    }
+
+    function updatePeakHourState() {
+      const peak = isPeakHour();
+      const badge = document.getElementById('peak-hour-display');
+      if (badge) {
+        badge.innerText = state.peakHourEnabled ? (peak ? 'PEAK HOUR • HIGH ARRIVALS' : 'NORMAL ARRIVALS') : 'PEAK SYSTEM OFF';
+        badge.className = state.peakHourEnabled && peak
+          ? 'px-2 py-0.5 rounded bg-crimson-red text-[10px] font-mono text-white font-bold animate-pulse'
+          : 'px-2 py-0.5 rounded bg-olive-800 text-[10px] font-mono text-beige-200';
+      }
+      return peak;
+    }
+
+    function scheduleNextRandomArrival() {
+      // Random walking customers arrive more frequently during the 15-minute peak window.
+      state.randomArrivalCountdown = updatePeakHourState() ? randomBetween(1, 2) : randomBetween(2, 4);
+    }
+
+    function formatDurationSeconds(totalSeconds) {
+      const seconds = Math.max(0, Math.ceil(totalSeconds));
+      if (seconds < 60) return `${seconds}s`;
+      const mins = Math.floor(seconds / 60);
+      const rem = seconds % 60;
+      return `${mins}m ${String(rem).padStart(2, '0')}s`;
+    }
+
+    function switchTab(tabNum) {
+      state.activeTab = tabNum;
+      const tab1 = document.getElementById('tab-1-view');
+      const tab2 = document.getElementById('tab-2-view');
+      const tab3 = document.getElementById('tab-3-view');
+      const btn1 = document.getElementById('btn-tab-1');
+      const btn2 = document.getElementById('btn-tab-2');
+      const btn3 = document.getElementById('btn-tab-3');
+
+      tab1.classList.add('hidden');
+      tab2.classList.add('hidden');
+      if (tab3) tab3.classList.add('hidden');
+
+      btn1.className = 'px-4 py-2 text-xs font-bold rounded-lg text-beige-300 hover:text-beige-50 transition flex items-center space-x-2';
+      btn2.className = 'px-4 py-2 text-xs font-bold rounded-lg text-beige-300 hover:text-beige-50 transition flex items-center space-x-2';
+      if (btn3) btn3.className = 'px-4 py-2 text-xs font-bold rounded-lg text-beige-300 hover:text-beige-50 transition flex items-center space-x-2';
+
+      if (tabNum === 1) {
+        tab1.classList.remove('hidden');
+        btn1.className = 'px-4 py-2 text-xs font-bold rounded-lg bg-olive-600 text-beige-50 shadow-sm transition flex items-center space-x-2';
+      } else if (tabNum === 2) {
+        tab2.classList.remove('hidden');
+        btn2.className = 'px-4 py-2 text-xs font-bold rounded-lg bg-olive-600 text-beige-50 shadow-sm transition flex items-center space-x-2';
+        updateTab2Charts();
+      } else if (tabNum === 3) {
+        if (tab3) tab3.classList.remove('hidden');
+        if (btn3) btn3.className = 'px-4 py-2 text-xs font-bold rounded-lg bg-olive-600 text-beige-50 shadow-sm transition flex items-center space-x-2';
+        renderAdmissionLogicTab();
+      }
+    }
+
+    function playAudioTone(type) {
+      try {
+        if (typeof Tone === 'undefined') return;
+        const synth = new Tone.Synth().toDestination();
+        if (type === 'admit') synth.triggerAttackRelease('C5', '8n');
+        else if (type === 'surge') synth.triggerAttackRelease('G3', '4n');
+        else if (type === 'deteriorated') synth.triggerAttackRelease('E2', '8n');
+        else if (type === 'discharge') synth.triggerAttackRelease('E5', '8n');
+      } catch (e) {}
+    }
+
+    window.onload = function() {
+      initCharts();
+      initTab2Charts();
+      seedInitialMockData();
+      renderAll();
+      logEvent('SYSTEM', 'MEDFLOW Engine Initialized with 3 Admission Logic Options & Queue Clear Functionality.', 'olive');
+    };
+
+    function seedInitialMockData() {
+      const mockQueue = [
+        { name: 'Marcus Vance', age: 62, condition: 'Cardiac Arrest / Acute MI', dept: 'Cardiology', severity: 5, doctorSpec: 'Cardiologists', bedType: 'ICU', orRequired: 'yes', nurses: 3, ambulance: 'yes', treatmentTime: 30 },
+        { name: 'Sarah Jenkins', age: 34, condition: 'Major Polytrauma / Gunshot', dept: 'Emergency', severity: 5, doctorSpec: 'General Surgeons', bedType: 'ICU', orRequired: 'yes', nurses: 4, ambulance: 'yes', treatmentTime: 40 },
+        { name: 'David Kim', age: 28, condition: 'Acute Appendicitis', dept: 'Surgery', severity: 3, doctorSpec: 'General Surgeons', bedType: 'General', orRequired: 'yes', nurses: 1, ambulance: 'no', treatmentTime: 18 },
+        { name: 'Elena Rostova', age: 71, condition: 'Acute Ischemic Stroke', dept: 'Neurology', severity: 5, doctorSpec: 'Neurologists', bedType: 'ICU', orRequired: 'no', nurses: 2, ambulance: 'yes', treatmentTime: 25 },
+        { name: 'Robert Chen', age: 49, condition: 'Complex Open Fracture', dept: 'Orthopedics', severity: 3, doctorSpec: 'Orthopedic Surgeons', bedType: 'General', orRequired: 'yes', nurses: 2, ambulance: 'no', treatmentTime: 20 },
+        { name: 'Lia Martinez', age: 22, condition: 'General Checkup / Minor Consultation', dept: 'General Care', severity: 1, doctorSpec: 'General Practitioners', bedType: 'General', orRequired: 'no', nurses: 1, ambulance: 'no', treatmentTime: 10 }
+      ];
+
+      mockQueue.forEach((p, idx) => {
+        const patient = {
+          id: `PAT-${state.patientIdCounter++}`,
+          ...p,
+          waitTime: idx * 3,
+          waitTimeSeconds: idx * 180,
+        };
+        patient.nurses = getRequiredStaffForSeverity(patient.severity).nurses;
+        patient.disease = patient.disease ?? patient.severity;
+        patient.priorityScore = calculatePriorityScore(patient);
+        state.queue.push(patient);
+      });
+
+      admitPatientDirectly({
+        id: `PAT-${state.patientIdCounter++}`,
+        name: 'Arthur Pendelton',
+        age: 58,
+        condition: 'Sepsis / Septic Shock',
+        dept: 'ICU',
+        severity: 5,
+        doctorSpec: 'Intensivists',
+        bedType: 'ICU',
+        orRequired: 'no',
+        nurses: 3,
+        ambulance: 'yes',
+        treatmentTime: 25,
+        elapsedTime: 10,
+        remainingTime: 15,
+        totalTime: 25,
+        waitTime: 2,
+        waitTimeSeconds: 120
+      });
+
+      admitPatientDirectly({
+        id: `PAT-${state.patientIdCounter++}`,
+        name: 'Clara Oswald',
+        age: 29,
+        condition: 'Deep Laceration',
+        dept: 'Emergency',
+        severity: 2,
+        doctorSpec: 'ER Physicians',
+        bedType: 'General',
+        orRequired: 'no',
+        nurses: 1,
+        ambulance: 'no',
+        treatmentTime: 10,
+        elapsedTime: 4,
+        remainingTime: 6,
+        totalTime: 10,
+        waitTime: 1,
+        waitTimeSeconds: 60
+      });
+
+      sortQueue();
+    }
+
+    function calculatePriorityScore(patient) {
+      const severity = Number(patient.severity) || 0;
+      const disease = Number(patient.disease ?? severity) || 0;
+      const age = Number(patient.age) || 0;
+      const urgencyFactor = (severity * 0.5) + (disease * 0.35) + (age * 0.15);
+      return Math.round(urgencyFactor * 100) / 100;
+    }
+
+    function calculateResourceDemand(p) {
+      let score = (p.treatmentTime || 20);
+      score += (p.nurses || 1) * 5;
+      if (p.orRequired === 'yes') score += 20;
+      if (p.bedType === 'ICU') score += 15;
+      return score;
+    }
+
+    function sortQueue() {
+      state.queue.forEach(p => { p.priorityScore = calculatePriorityScore(p); });
+
+      if (state.strategy === 'fcfs') {
+        // First Come First Serve (Longest wait time first)
+        state.queue.sort((a, b) => b.waitTime - a.waitTime);
+      } else if (state.strategy === 'lrf') {
+        // Least Resources First (Lowest resource overhead score first)
+        state.queue.sort((a, b) => calculateResourceDemand(a) - calculateResourceDemand(b));
+      } else {
+        // Priority Wise
+        state.queue.sort((a, b) => b.priorityScore - a.priorityScore);
+      }
+    }
+
+    function clearQueue() {
+      const count = state.queue.length;
+      state.queue = [];
+      logEvent('QUEUE', `Triage queue cleared! Removed ${count} waiting patients.`, 'crimson');
+      renderAll();
+    }
+
+    function updateBaseConfig() {
+      state.resources.generalBeds.total = parseInt(document.getElementById('base-general-beds').value) || 1;
+      state.resources.icuBeds.total = parseInt(document.getElementById('base-icu-beds').value) || 1;
+      state.resources.operatingRooms.total = parseInt(document.getElementById('base-operating-rooms').value) || 1;
+      state.resources.nurses.total = parseInt(document.getElementById('base-nurses').value) || 1;
+      state.resources.ambulances.total = parseInt(document.getElementById('base-ambulances').value) || 1;
+
+      if (document.getElementById('base-doc-er')) state.doctors['ER Physicians'].total = parseInt(document.getElementById('base-doc-er').value) || 1;
+      if (document.getElementById('base-doc-cardio')) state.doctors['Cardiologists'].total = parseInt(document.getElementById('base-doc-cardio').value) || 1;
+      if (document.getElementById('base-doc-surgeons')) state.doctors['General Surgeons'].total = parseInt(document.getElementById('base-doc-surgeons').value) || 1;
+      if (document.getElementById('base-doc-icu')) state.doctors['Intensivists'].total = parseInt(document.getElementById('base-doc-icu').value) || 1;
+      if (document.getElementById('base-doc-neuro')) state.doctors['Neurologists'].total = parseInt(document.getElementById('base-doc-neuro').value) || 1;
+      if (document.getElementById('base-doc-ortho')) state.doctors['Orthopedic Surgeons'].total = parseInt(document.getElementById('base-doc-ortho').value) || 1;
+      if (document.getElementById('base-doc-gp')) state.doctors['General Practitioners'].total = parseInt(document.getElementById('base-doc-gp').value) || 1;
+
+
+      sortQueue();
+      renderAll();
+      logEvent('CONFIG', 'Base hospital priorities and capacity updated.', 'olive');
+    }
+
+    function getEffectiveDoctorTotal(doc) {
+      if (!doc) return 0;
+      return state.staffShortageEnabled ? Math.max(0, Math.floor(doc.total * 0.8)) : doc.total;
+    }
+
+    function getEffectiveNurseTotal(nurses) {
+      if (!nurses) return 0;
+      return state.staffShortageEnabled ? Math.max(0, Math.floor(nurses.total * 0.8)) : nurses.total;
+    }
+
+    function getAvailableDoctorCount(spec) {
+      const doc = state.doctors[spec];
+      if (!doc || doc.outage) return 0;
+      return Math.max(0, getEffectiveDoctorTotal(doc) - doc.allocated);
+    }
+
+    function getAnyAvailableDoctorSpec() {
+      for (const spec of Object.keys(state.doctors)) {
+        if (getAvailableDoctorCount(spec) > 0) return spec;
+      }
+      return null;
+    }
+
+    function getRequiredStaffForSeverity(severity) {
+      const level = Number(severity) || 1;
+      if (level === 1) return { doctors: 0, nurses: 1 };
+      if (level === 2 || level === 3) return { doctors: 1, nurses: 1 };
+      return { doctors: 1, nurses: 2 };
+    }
+
+    function getAvailableResourceCount(resKey) {
+      const res = state.resources[resKey];
+      if (!res || res.outage) return 0;
+      const effectiveTotal = resKey === 'nurses' ? getEffectiveNurseTotal(res) : res.total;
+      return Math.max(0, effectiveTotal - res.allocated);
+    }
+
+    function toggleSimulation() {
+      state.isRunning = !state.isRunning;
+      const btnIcon = document.getElementById('play-pause-icon');
+      const btnText = document.getElementById('play-pause-text');
+      const btn = document.getElementById('btn-play-pause');
+
+      if (state.isRunning) {
+        btnIcon.className = 'fa-solid fa-pause';
+        btnText.innerText = 'Pause Sim';
+        btn.className = 'bg-amber-gold hover:bg-amber-warm text-slate-950 px-3.5 py-2 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition-all shadow-sm';
+        startTickInterval();
+        logEvent('SIM', 'Simulation started.', 'olive');
+      } else {
+        btnIcon.className = 'fa-solid fa-play';
+        btnText.innerText = 'Start Sim';
+        btn.className = 'bg-olive-600 hover:bg-olive-500 text-beige-50 px-3.5 py-2 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-all shadow-sm';
+        stopTickInterval();
+        logEvent('SIM', 'Simulation paused.', 'slate');
+      }
+    }
+
+    function setSimSpeed(speed) {
+      state.simSpeed = speed;
+      [1, 2, 5].forEach(s => {
+        const btn = document.getElementById(`speed-btn-${s}`);
+        if (s === speed) btn.className = 'px-2 py-1 text-[11px] font-mono rounded text-beige-50 bg-olive-700 font-bold';
+        else btn.className = 'px-2 py-1 text-[11px] font-mono rounded text-beige-400 hover:text-beige-100';
+      });
+      if (state.isRunning) {
+        stopTickInterval();
+        startTickInterval();
+      }
+    }
+
+    function startTickInterval() {
+      state.lastTickTimestamp = performance.now();
+      cancelAnimationFrame(state.rafId);
+      state.rafId = requestAnimationFrame(tickLoop);
+    }
+
+    function stopTickInterval() {
+      cancelAnimationFrame(state.rafId);
+      state.rafId = null;
+      state.lastTickTimestamp = null;
+    }
+
+    function tickLoop(now) {
+      if (!state.isRunning) return;
+      const intervalMs = Math.max(25, 1000 / state.simSpeed);
+      let elapsed = now - state.lastTickTimestamp;
+
+      if (elapsed >= intervalMs) {
+        let ticksDue = Math.floor(elapsed / intervalMs);
+        if (ticksDue > 60) ticksDue = 60;
+        for (let i = 0; i < ticksDue; i++) stepSimulation();
+        state.lastTickTimestamp += ticksDue * intervalMs;
+        if (now - state.lastTickTimestamp > intervalMs * 2) state.lastTickTimestamp = now;
+      }
+
+      // Ambulance notifications use real wall-clock seconds for the 10-second
+      // warning, while the actual arrival itself remains tied to simulation time.
+      updateAmbulancePopouts();
+      state.rafId = requestAnimationFrame(tickLoop);
+    }
+
+    function stepSimulation() {
+      const wasPeak = isPeakHour();
+      state.simTick++;
+      // Each simulation tick advances 1 simulation minute at 1x.
+      // At 2x/5x, multiple ticks occur each real second, so simulation time
+      // advances proportionally faster while ambulance/random-arrival countdowns
+      // below continue to use real-tick seconds.
+      state.simMinutes += 1;
+
+      const simStepMinutes = 1;
+
+      for (let i = state.admitted.length - 1; i >= 0; i--) {
+        const p = state.admitted[i];
+        p.elapsedTime += simStepMinutes;
+        p.remainingTime -= simStepMinutes;
+
+        const progressPct = Math.min(100, Math.round((p.elapsedTime / p.totalTime) * 100));
+        if (progressPct >= 100 || p.remainingTime <= 0) dischargePatient(i);
+      }
+
+      // Waiting patients age by one simulation minute per tick.
+      for (let i = state.queue.length - 1; i >= 0; i--) {
+        const p = state.queue[i];
+        p.waitTime = (Number(p.waitTime) || 0) + 1;
+        p.waitTimeSeconds = (Number(p.waitTimeSeconds) || 0) + 60;
+
+        const riskPct = calculateMortalityRisk(p);
+
+        if (p.waitTime > 2 && riskPct > 0) {
+          // Mortality is evaluated once per simulation minute.
+          const perMinuteChance = Math.min(0.99, riskPct / 12000);
+          const deathRoll = Math.random();
+          if (deathRoll < perMinuteChance) {
+            state.stats.totalFatalities++;
+            state.queue.splice(i, 1);
+            logEvent('FATALITY', `FATALITY ALERT: ${p.name} (${p.condition}) succumbed in triage queue! Risk: ${riskPct}%`, 'crimson');
+            playAudioTone('deteriorated');
+            continue;
+          }
+        }
+      }
+
+      // Random walking customers: normal rate is 1 arrival every 2-4 simulation minutes;
+      // peak rate is higher at 1 arrival every 1-2 simulation minutes.
+      const nowPeak = updatePeakHourState();
+      if (state.randomPatientGenEnabled) {
+        if (state.randomArrivalCountdown == null || wasPeak !== nowPeak) scheduleNextRandomArrival();
+        state.randomArrivalCountdown--;
+        if (state.randomArrivalCountdown <= 0) {
+          generateRandomPatientArrival();
+          scheduleNextRandomArrival();
+        }
+      }
+
+      // Automatic ambulance cycle: one ambulance every randomly selected 30-40 simulation minutes.
+      processAutomaticAmbulanceCycle();
+
+      sortQueue();
+      if (state.autoAdmitEnabled) attemptAutoAdmission();
+
+      updateAmbulancePopouts();
+      updateCharts();
+      if (state.activeTab === 2) updateTab2Charts();
+      renderAll();
+    }
+
+    function checkResourceAvailability(patient) {
+      const req = getRequiredStaffForSeverity(patient.severity);
+      let assignedDoctorSpec = null;
+
+      if (req.doctors > 0) {
+        // L2-L3 can use the specialist first, then a normal/cross-department doctor.
+        // L4-L5 require their specialist.
+        if (getAvailableDoctorCount(patient.doctorSpec) > 0) {
+          assignedDoctorSpec = patient.doctorSpec;
+        } else if (patient.severity <= 3) {
+          assignedDoctorSpec = getAnyAvailableDoctorSpec();
+        }
+      }
+
+      const docAvail = req.doctors === 0 || !!assignedDoctorSpec;
+      const nurseAvail = getAvailableResourceCount('nurses') >= req.nurses;
+      let bedAvail = true;
+      if (patient.bedType === 'General') bedAvail = getAvailableResourceCount('generalBeds') > 0;
+      else if (patient.bedType === 'ICU') bedAvail = getAvailableResourceCount('icuBeds') > 0;
+      let orAvail = true;
+      if (patient.orRequired === 'yes') orAvail = getAvailableResourceCount('operatingRooms') > 0;
+
+      return { success: docAvail && nurseAvail && bedAvail && orAvail, docAvail, nurseAvail, bedAvail, orAvail, assignedDoctorSpec, requiredNurses: req.nurses };
+    }
+
+    function attemptAutoAdmission() {
+      if (state.queue.length === 0) return;
+      for (let i = 0; i < state.queue.length; i++) {
+        const candidate = state.queue[i];
+        const resCheck = checkResourceAvailability(candidate);
+        if (resCheck.success) {
+          state.queue.splice(i, 1);
+          admitPatientDirectly(candidate, resCheck);
+          playAudioTone('admit');
+          break;
+        }
+      }
+    }
+
+    function admitPatientDirectly(patient, precheck = null) {
+      const req = getRequiredStaffForSeverity(patient.severity);
+      const check = precheck || checkResourceAvailability(patient);
+      const assignedDoctorSpec = check.assignedDoctorSpec || (req.doctors > 0 ? patient.doctorSpec : null);
+
+      if (req.doctors > 0 && assignedDoctorSpec && state.doctors[assignedDoctorSpec]) {
+        state.doctors[assignedDoctorSpec].allocated++;
+      }
+      state.resources.nurses.allocated += req.nurses;
+
+      if (patient.bedType === 'General') state.resources.generalBeds.allocated++;
+      if (patient.bedType === 'ICU') state.resources.icuBeds.allocated++;
+      if (patient.orRequired === 'yes') state.resources.operatingRooms.allocated++;
+
+      let totalEstimated = patient.treatmentTime || patient.totalTime || 25;
+      if (state.resourceFailureEnabled) totalEstimated = Math.max(3, Math.round(totalEstimated * 1.3));
+
+      const admittedRecord = {
+        ...patient,
+        assignedDoctorSpec,
+        treatedByNurseOnly: req.doctors === 0,
+        nursesAllocated: req.nurses,
+        doctorsAllocated: req.doctors,
+        totalTime: totalEstimated,
+        elapsedTime: patient.elapsedTime || 0,
+        remainingTime: Math.max(0, totalEstimated - (patient.elapsedTime || 0)),
+        admittedAt: formatSimTime(state.simMinutes)
+      };
+
+      state.admitted.push(admittedRecord);
+      const strat = state.strategy;
+      if (state.strategyMetrics[strat]) {
+        state.strategyMetrics[strat].count++;
+        state.strategyMetrics[strat].totalWait += patient.waitTime;
+      }
+
+      const caregiverLabel = req.doctors === 0
+        ? '1 Nurse (L1)'
+        : `1 Doctor: ${assignedDoctorSpec}${assignedDoctorSpec !== patient.doctorSpec ? ' (Cross-Department Assist)' : ''} + ${req.nurses} Nurse`;
+      logEvent('ADMIT', `Admitted ${patient.name} (${patient.condition}) -> ${caregiverLabel} [Est. ${totalEstimated}m]`, 'olive');
+    }
+
+    function dischargePatient(index) {
+      const p = state.admitted[index];
+      const assignedSpec = p.assignedDoctorSpec || p.doctorSpec;
+      if (p.doctorsAllocated > 0 && state.doctors[assignedSpec]) {
+        state.doctors[assignedSpec].allocated = Math.max(0, state.doctors[assignedSpec].allocated - p.doctorsAllocated);
+      }
+      if (p.bedType === 'General') state.resources.generalBeds.allocated = Math.max(0, state.resources.generalBeds.allocated - 1);
+      if (p.bedType === 'ICU') state.resources.icuBeds.allocated = Math.max(0, state.resources.icuBeds.allocated - 1);
+      if (p.orRequired === 'yes') state.resources.operatingRooms.allocated = Math.max(0, state.resources.operatingRooms.allocated - 1);
+      state.resources.nurses.allocated = Math.max(0, state.resources.nurses.allocated - (p.nursesAllocated || getRequiredStaffForSeverity(p.severity).nurses));
+
+      state.stats.totalDischarged++;
+      state.admitted.splice(index, 1);
+      playAudioTone('discharge');
+      logEvent('DISCHARGE', `SUCCESSFUL DISCHARGE: ${p.name}. Treatment finished. Resources freed.`, 'slate');
+    }
+
+    function manualAdmit(patientId) {
+      const idx = state.queue.findIndex(p => p.id === patientId);
+      if (idx === -1) return;
+
+      const p = state.queue[idx];
+      const check = checkResourceAvailability(p);
+
+      if (check.success) {
+        state.queue.splice(idx, 1);
+        admitPatientDirectly(p, check);
+        renderAll();
+      } else {
+        state.pendingForcePatientId = patientId;
+        document.getElementById('modal-force-admit').classList.remove('hidden');
+      }
+    }
+
+    function confirmForceAdmit() {
+      if (!state.pendingForcePatientId) return;
+      const idx = state.queue.findIndex(p => p.id === state.pendingForcePatientId);
+      if (idx !== -1) {
+        const p = state.queue.splice(idx, 1)[0];
+        admitPatientDirectly(p);
+        logEvent('OVERRIDE', `COMMAND OVERRIDE: Force admitted ${p.name} despite resource bottleneck!`, 'crimson');
+      }
+      closeForceAdmitModal();
+      renderAll();
+    }
+
+    function closeForceAdmitModal() {
+      state.pendingForcePatientId = null;
+      document.getElementById('modal-force-admit').classList.add('hidden');
+    }
+
+    function dismissPatient(patientId) {
+      state.queue = state.queue.filter(p => p.id !== patientId);
+      logEvent('QUEUE', `Patient ${patientId} dismissed / transferred out.`, 'slate');
+      renderAll();
+    }
+
+    function createPatientFromCondition(cond, source = 'AUTO', levelOverride = null) {
+      const severity = levelOverride == null ? cond.severity : levelOverride;
+      return {
+        id: `${source}-${state.patientIdCounter++}`,
+        name: source === 'AMB' ? `Ambulance Patient #${Math.floor(Math.random() * 899) + 100}` : `Arrival #${Math.floor(Math.random() * 899) + 100}`,
+        age: Math.floor(Math.random() * 55) + 18,
+        condition: cond.name,
+        dept: cond.dept,
+        severity,
+        doctorSpec: cond.doctorSpec,
+        bedType: cond.bedType,
+        orRequired: cond.orRequired,
+        nurses: getRequiredStaffForSeverity(severity).nurses,
+        disease: severity,
+        ambulance: source === 'AMB' ? 'yes' : cond.ambulance,
+        treatmentTime: cond.treatmentTime,
+        waitTime: 0,
+        waitTimeSeconds: 0,
+      };
+    }
+
+    function generateRandomPatientArrival() {
+      const targetSeverity = randomBetween(1, 5);
+      const condKeys = Object.keys(CONDITIONS_DATABASE).filter(key => CONDITIONS_DATABASE[key].severity === targetSeverity);
+      const randKey = condKeys[Math.floor(Math.random() * condKeys.length)];
+      const cond = CONDITIONS_DATABASE[randKey];
+      const patient = createPatientFromCondition(cond, 'AUTO', targetSeverity);
+      patient.nurses = getRequiredStaffForSeverity(patient.severity).nurses;
+      patient.disease = patient.disease ?? patient.severity;
+
+      patient.priorityScore = calculatePriorityScore(patient);
+      state.queue.push(patient);
+      sortQueue();
+
+      logEvent('ARRIVE', `Random arrival: ${patient.name} (${cond.name}) queued at L${patient.severity}`, 'amber');
+    }
+
+    function getAmbulanceEligibleConditionKeys() {
+      return Object.keys(CONDITIONS_DATABASE).filter(key => {
+        const def = CONDITIONS_DATABASE[key];
+        return def.severity >= 3 && def.severity <= 5;
+      });
+    }
+
+    function buildAutomaticAmbulance(targetSimMinute) {
+      const ambulanceData = state.resources.ambulances;
+      const available = Math.max(0, ambulanceData.total - ambulanceData.allocated);
+
+      const ambulance = {
+        id: state.ambulanceCallCounter++,
+        targetSimMinute,
+        capacity: randomBetween(1, 3),
+        status: 'scheduled',
+        warningShown: false,
+        alertDismissed: false,
+        vehicleAllocated: false,
+        patients: []
+      };
+
+      const eligibleKeys = getAmbulanceEligibleConditionKeys();
+      for (let i = 0; i < ambulance.capacity; i++) {
+        const key = eligibleKeys[Math.floor(Math.random() * eligibleKeys.length)];
+        const cond = CONDITIONS_DATABASE[key];
+        const level = randomBetween(3, 5);
+        ambulance.patients.push(createPatientFromCondition(cond, 'AMB', level));
+      }
+
+      // If the ambulance pool is unavailable, keep the event visible but do not
+      // consume a vehicle resource; the patients will not enter triage.
+      ambulance.canArrive = !ambulanceData.outage && available > 0;
+      return ambulance;
+    }
+
+    function getAmbulanceEstimatedSeconds(ambulance) {
+      const remainingSimMinutes = Math.max(0, ambulance.targetSimMinute - state.simMinutes);
+      const simMinutesPerRealSecond = Math.max(0.001, state.simSpeed);
+      return remainingSimMinutes / simMinutesPerRealSecond;
+    }
+
+    function processAutomaticAmbulanceCycle() {
+      // Keep exactly one upcoming ambulance scheduled at a time.
+      if (state.incomingAmbulances.length === 0) {
+        const amb = buildAutomaticAmbulance(state.nextAmbulanceSimMinute);
+        state.incomingAmbulances.push(amb);
+      }
+
+      for (let i = state.incomingAmbulances.length - 1; i >= 0; i--) {
+        const amb = state.incomingAmbulances[i];
+
+        // Show the warning once the projected ETA is <= 10 real seconds.
+        // Arrival itself remains tied to the scheduled 30-40 simulation-minute cycle.
+        const etaSeconds = getAmbulanceEstimatedSeconds(amb);
+        if (!amb.warningShown && etaSeconds <= 10 && etaSeconds > 0) {
+          amb.warningShown = true;
+          amb.status = 'en-route';
+
+          const ambulanceData = state.resources.ambulances;
+          const available = Math.max(0, ambulanceData.total - ambulanceData.allocated);
+          if (amb.canArrive && available > 0 && !ambulanceData.outage) {
+            ambulanceData.allocated++;
+            amb.vehicleAllocated = true;
+            logEvent('AMBULANCE', `🚑 Ambulance #${amb.id} inbound with ${amb.capacity} Level 3-5 patient${amb.capacity > 1 ? 's' : ''}. ETA 10s.`, 'crimson');
+            playAudioTone('surge');
+          } else {
+            amb.canArrive = false;
+            logEvent('AMBULANCE', `⚠️ Ambulance #${amb.id} scheduled, but no ambulance resource is available.`, 'crimson');
+            playAudioTone('deteriorated');
+          }
+        }
+
+        // The ambulance arrives when the simulation reaches its target time.
+        if (state.simMinutes >= amb.targetSimMinute) {
+          if (amb.canArrive && amb.vehicleAllocated && !state.resources.ambulances.outage) {
+            amb.status = 'arrived';
+            amb.patients.forEach(patient => {
+              patient.priorityScore = calculatePriorityScore(patient);
+              state.queue.push(patient);
+            });
+
+            state.resources.ambulances.allocated = Math.max(0, state.resources.ambulances.allocated - 1);
+            logEvent('AMBULANCE', `🚑 Ambulance #${amb.id} ARRIVED: ${amb.patients.length} patient${amb.patients.length > 1 ? 's' : ''} entered triage (Levels 3-5).`, 'olive');
+            playAudioTone('admit');
+
+            removeAmbulanceToast(amb.id);
+            showSimulationToast(
+              `Ambulance #${amb.id} Arrived`,
+              `${amb.patients.length} patient${amb.patients.length > 1 ? 's' : ''} transferred to triage.`,
+              'olive',
+              `ambulance-${amb.id}`
+            );
+          } else {
+            logEvent('AMBULANCE', `Ambulance #${amb.id} arrival cancelled: ambulance resource unavailable.`, 'crimson');
+            removeAmbulanceToast(amb.id);
+            showSimulationToast(`Ambulance #${amb.id} Cancelled`, 'No ambulance resource was available for this arrival.', 'crimson', `ambulance-${amb.id}`);
+          }
+
+          state.incomingAmbulances.splice(i, 1);
+          state.nextAmbulanceSimMinute = amb.targetSimMinute + randomBetween(30, 40);
+        }
+      }
+    }
+
+    function removeAmbulanceToast(id) {
+      const normal = document.getElementById(`ambulance-${id}`);
+      const alert = document.getElementById(`ambulance-alert-${id}`);
+      if (normal) normal.remove();
+      if (alert) alert.remove();
+    }
+
+    function dismissAmbulanceAlert(id) {
+      const numericId = Number(id);
+      const amb = state.incomingAmbulances.find(item => item.id === numericId);
+      if (amb) amb.alertDismissed = true;
+      const toast = document.getElementById(`ambulance-alert-${numericId}`);
+      if (toast) toast.remove();
+      logEvent('AMBULANCE', `Ambulance #${numericId} arrival warning acknowledged.`, 'slate');
+    }
+
+    function showSimulationToast(title, message, level = 'olive', id = null, alertWindow = false) {
+      const stack = document.getElementById('ambulance-popout-stack');
+      if (!stack) return;
+
+      const toastId = id || `toast-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      let toast = document.getElementById(toastId);
+      if (!toast) {
+        toast = document.createElement('div');
+        toast.id = toastId;
+        stack.appendChild(toast);
+      }
+
+      const palette = level === 'crimson'
+        ? { border: 'border-crimson-red/40', icon: 'text-crimson-red', bg: 'bg-crimson-red/10', title: 'text-crimson-red', badge: 'bg-crimson-red text-white' }
+        : level === 'amber'
+          ? { border: 'border-amber-gold/40', icon: 'text-amber-gold', bg: 'bg-amber-gold/10', title: 'text-amber-warm', badge: 'bg-amber-gold text-slate-950' }
+          : { border: 'border-olive-300', icon: 'text-olive-600', bg: 'bg-olive-50', title: 'text-olive-800', badge: 'bg-olive-700 text-white' };
+
+      toast.className = `sim-toast border ${palette.border} ${palette.bg} backdrop-blur-md bg-white/95 ${alertWindow ? 'ambulance-popout alert-window' : 'ambulance-popout'}`;
+      toast.innerHTML = `
+        <div class="p-3.5">
+          <div class="flex items-start gap-3">
+            <div class="w-9 h-9 rounded-xl ${palette.badge} flex items-center justify-center shrink-0">
+              <i class="fa-solid fa-truck-medical"></i>
+            </div>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center justify-between gap-2">
+                <div class="font-grotesk font-bold text-sm ${palette.title}">${title}</div>
+                ${alertWindow
+                  ? `<button onclick="dismissAmbulanceAlert(${JSON.stringify(String(id).replace('ambulance-alert-', ''))})" class="bg-slate-800 hover:bg-slate-700 text-white text-[10px] font-bold px-3 py-1.5 rounded-md transition" aria-label="Acknowledge ambulance alert">OKAY</button>`
+                  : '<button onclick="this.closest(\'.sim-toast\')?.remove()" class="text-slate-400 hover:text-slate-700 text-sm" aria-label="Dismiss notification"><i class="fa-solid fa-xmark"></i></button>'}
+              </div>
+              <div class="text-[11px] text-slate-700 font-mono mt-1">${message}</div>
+              ${alertWindow ? '<div class="text-[10px] text-crimson-red font-bold uppercase tracking-wide mt-2">10-second arrival warning</div>' : ''}
+            </div>
+          </div>
+        </div>`;
+    }
+
+    function updateAmbulancePopouts() {
+      state.incomingAmbulances.forEach(amb => {
+        const etaSeconds = getAmbulanceEstimatedSeconds(amb);
+
+        if (!amb.warningShown && etaSeconds <= 10 && etaSeconds > 0) {
+          // If the real-time warning threshold has just been reached, create it now.
+          amb.warningShown = true;
+          amb.status = 'en-route';
+          const ambulanceData = state.resources.ambulances;
+          const available = Math.max(0, ambulanceData.total - ambulanceData.allocated);
+          if (amb.canArrive && available > 0 && !ambulanceData.outage) {
+            ambulanceData.allocated++;
+            amb.vehicleAllocated = true;
+            logEvent('AMBULANCE', `🚑 Ambulance #${amb.id} inbound with ${amb.capacity} Level 3-5 patient${amb.capacity > 1 ? 's' : ''}. ETA ${Math.ceil(etaSeconds)}s.`, 'crimson');
+            playAudioTone('surge');
+          } else {
+            amb.canArrive = false;
+            logEvent('AMBULANCE', `⚠️ Ambulance #${amb.id} could not be dispatched: ambulance resource unavailable.`, 'crimson');
+          }
+        }
+
+        if (amb.warningShown && !amb.alertDismissed && etaSeconds > 0) {
+          showSimulationToast(
+            `Ambulance #${amb.id} Incoming`,
+            `ARRIVAL IN ${Math.max(1, Math.ceil(etaSeconds))}s • carrying ${amb.capacity} patient${amb.capacity > 1 ? 's' : ''} • Levels 3-5`,
+            'crimson',
+            `ambulance-alert-${amb.id}`,
+            true
+          );
+        }
+      });
+    }
+
+    function toggleAutoAdmit() {
+      state.autoAdmitEnabled = !state.autoAdmitEnabled;
+      const statusEl = document.getElementById('status-autoadmit');
+      const iconEl = document.getElementById('icon-autoadmit');
+
+      if (state.autoAdmitEnabled) {
+        statusEl.innerText = 'ON';
+        statusEl.className = 'text-amber-gold';
+        iconEl.className = 'fa-solid fa-robot text-amber-gold';
+        logEvent('CONFIG', 'Auto Admit by Priority score ENABLED.', 'olive');
+      } else {
+        statusEl.innerText = 'OFF';
+        statusEl.className = 'text-slate-400';
+        iconEl.className = 'fa-solid fa-robot text-slate-400';
+        logEvent('CONFIG', 'Auto Admit DISABLED. Manual admission required.', 'slate');
+      }
+    }
+
+    function toggleStaffShortage() {
+      state.staffShortageEnabled = !state.staffShortageEnabled;
+      const statusEl = document.getElementById('status-staff-shortage');
+      const iconEl = document.getElementById('icon-staff-shortage');
+
+      if (state.staffShortageEnabled) {
+        statusEl.innerText = 'ON';
+        statusEl.className = 'text-amber-gold font-bold';
+        iconEl.className = 'fa-solid fa-user-minus text-amber-gold';
+        logEvent('CONFIG', 'STAFF SHORTAGE ON: 20% of doctor and nurse capacity removed. L1 = 1 nurse; L2-L3 may use cross-department doctors; L4-L5 require specialists.', 'amber');
+      } else {
+        statusEl.innerText = 'OFF';
+        statusEl.className = 'text-slate-400';
+        iconEl.className = 'fa-solid fa-user-minus text-slate-400';
+        logEvent('CONFIG', 'Staff Shortage Protocol DISABLED. Standard staffing operating.', 'slate');
+      }
+      sortQueue();
+      renderAll();
+    }
+
+    function toggleResourceFailure() {
+      state.resourceFailureEnabled = !state.resourceFailureEnabled;
+      const statusEl = document.getElementById('status-resource-failure');
+      const iconEl = document.getElementById('icon-resource-failure');
+
+      if (state.resourceFailureEnabled) {
+        statusEl.innerText = 'ACTIVE +30%';
+        statusEl.className = 'text-crimson-bright font-bold';
+        iconEl.className = 'fa-solid fa-triangle-exclamation text-crimson-bright animate-pulse';
+        state.resources.icuBeds.outage = true;
+        state.resources.operatingRooms.outage = true;
+
+        state.admitted.forEach(p => {
+          const oldTotal = Number(p.totalTime) || Number(p.treatmentTime) || 25;
+          const added = Math.max(0, Math.round(oldTotal * 0.3));
+          p.totalTime = oldTotal + added;
+          p.remainingTime = Math.max(0, Number(p.remainingTime) || 0) + added;
+        });
+
+        playAudioTone('surge');
+        logEvent('FAILURE', 'RESOURCE FAILURE ON: ICU/OR resources unavailable; surgery/treatment time increased 30%. Doctor pools unchanged.', 'crimson');
+      } else {
+        statusEl.innerText = 'OFF';
+        statusEl.className = 'text-slate-400';
+        iconEl.className = 'fa-solid fa-triangle-exclamation text-slate-400';
+        state.resources.icuBeds.outage = false;
+        state.resources.operatingRooms.outage = false;
+        logEvent('CONFIG', 'Resource Failure OFF: ICU/OR resources restored. Doctor pools remain unchanged.', 'olive');
+      }
+      sortQueue();
+      renderAll();
+    }
+
+    function togglePeakHourSystem() {
+      state.peakHourEnabled = !state.peakHourEnabled;
+      const statusEl = document.getElementById('status-peak-hour');
+      const iconEl = document.getElementById('icon-peak-hour');
+      statusEl.innerText = state.peakHourEnabled ? 'AUTO' : 'OFF';
+      statusEl.className = state.peakHourEnabled ? 'text-amber-gold' : 'text-slate-400';
+      iconEl.className = state.peakHourEnabled ? 'fa-solid fa-people-group text-amber-gold' : 'fa-solid fa-people-group text-slate-400';
+      scheduleNextRandomArrival();
+      logEvent('CONFIG', state.peakHourEnabled
+        ? 'PEAK HOUR SYSTEM ON: every 3 simulation hours, a 15 simulation-minute high-arrival period occurs.'
+        : 'Peak Hour System OFF: random arrivals use the normal rate.', state.peakHourEnabled ? 'amber' : 'slate');
+      renderAll();
+    }
+
+    function toggleRandomGen() {
+      state.randomPatientGenEnabled = !state.randomPatientGenEnabled;
+      const statusEl = document.getElementById('status-random');
+      const iconEl = document.getElementById('icon-random');
+
+      if (state.randomPatientGenEnabled) {
+        statusEl.innerText = 'ON';
+        statusEl.className = 'text-amber-gold';
+        iconEl.className = 'fa-solid fa-dice text-amber-gold';
+        scheduleNextRandomArrival();
+        logEvent('CONFIG', `Random Patient Generation ENABLED. Next arrival in ${state.randomArrivalCountdown}s.`, 'amber');
+      } else {
+        statusEl.innerText = 'OFF';
+        statusEl.className = 'text-slate-400';
+        iconEl.className = 'fa-solid fa-dice text-slate-400';
+        state.randomArrivalCountdown = null;
+        logEvent('CONFIG', 'Random Patient Generation DISABLED.', 'slate');
+      }
+    }
+
+    function triggerMassCasualty() {
+      playAudioTone('surge');
+
+      const surgeCount = randomBetween(1, 5);
+      let levelCounts = { 3: 0, 4: 0, 5: 0 };
+
+      for (let i = 0; i < surgeCount; i++) {
+        const targetSeverity = randomBetween(3, 5);
+        const eligibleKeys = Object.keys(CONDITIONS_DATABASE).filter(key => CONDITIONS_DATABASE[key].severity === targetSeverity);
+        const randCondKey = eligibleKeys[Math.floor(Math.random() * eligibleKeys.length)];
+        const condDef = CONDITIONS_DATABASE[randCondKey];
+        const patient = createPatientFromCondition(condDef, 'SURGE', targetSeverity);
+        patient.name = `Surge Casualty #${Math.floor(Math.random() * 899) + 100}`;
+        patient.nurses = getRequiredStaffForSeverity(patient.severity).nurses;
+        patient.disease = patient.disease ?? patient.severity;
+        patient.priorityScore = calculatePriorityScore(patient);
+        state.queue.push(patient);
+        levelCounts[patient.severity]++;
+      }
+
+      sortQueue();
+      logEvent('SURGE', `🚨 SURGE EVENT: ${surgeCount} patients injected (L3: ${levelCounts[3]}, L4: ${levelCounts[4]}, L5: ${levelCounts[5]}).`, 'crimson');
+      showSimulationToast('Surge Event', `${surgeCount} new Level 3-5 patients arrived.`, 'crimson');
+      renderAll();
+    }
+
+    function onConditionTypeSelected() {
+      const select = document.getElementById('input-condition-type');
+      const key = select.value;
+      if (!key || !CONDITIONS_DATABASE[key]) return;
+
+      const def = CONDITIONS_DATABASE[key];
+
+      document.getElementById('input-patient-name').value = `Patient ${def.name.split(' ')[0]}`;
+      document.getElementById('input-severity').value = def.severity;
+      document.getElementById('input-doctor-spec').value = def.doctorSpec;
+      document.getElementById('input-dept').value = def.dept;
+      document.getElementById('input-bed-type').value = def.bedType;
+      document.getElementById('input-or-needed').value = def.orRequired;
+      document.getElementById('input-nurses-needed').value = def.nurses;
+      document.getElementById('input-ambulance').value = def.ambulance;
+      document.getElementById('input-treatment-time').value = def.treatmentTime;
+      document.getElementById('display-treatment-mins').innerText = `${def.treatmentTime} mins`;
+    }
+
+    function openAddPatientModal() {
+      document.getElementById('modal-add-patient').classList.remove('hidden');
+    }
+
+    function closeAddPatientModal() {
+      document.getElementById('modal-add-patient').classList.add('hidden');
+    }
+
+    function handlePatientSubmit(event) {
+      event.preventDefault();
+
+      const name = document.getElementById('input-patient-name').value.trim() || 'Anonymous Patient';
+      const age = parseInt(document.getElementById('input-patient-age').value) || 40;
+      const conditionSelect = document.getElementById('input-condition-type');
+      const conditionName = conditionSelect.value && CONDITIONS_DATABASE[conditionSelect.value] ? CONDITIONS_DATABASE[conditionSelect.value].name : 'Custom Clinical Case';
+      
+      const severity = parseInt(document.getElementById('input-severity').value);
+      const doctorSpec = document.getElementById('input-doctor-spec').value;
+      const dept = document.getElementById('input-dept').value;
+      const bedType = document.getElementById('input-bed-type').value;
+      const orRequired = document.getElementById('input-or-needed').value;
+      const nurses = parseInt(document.getElementById('input-nurses-needed').value) || 1;
+      const ambulance = document.getElementById('input-ambulance').value;
+      const treatmentTime = parseInt(document.getElementById('input-treatment-time').value) || 20;
+
+      const newPatient = {
+        id: `PAT-${state.patientIdCounter++}`,
+        name,
+        age,
+        condition: conditionName,
+        dept,
+        severity,
+        doctorSpec,
+        bedType,
+        orRequired,
+        nurses,
+        ambulance,
+        treatmentTime,
+        waitTime: 0,
+        waitTimeSeconds: 0,
+      };
+
+      newPatient.priorityScore = calculatePriorityScore(newPatient);
+      state.queue.push(newPatient);
+      sortQueue();
+
+      logEvent('PATIENT', `Manually queued: ${name} (${conditionName}) -> Score: ${newPatient.priorityScore}`, 'olive');
+      closeAddPatientModal();
+      renderAll();
+
+      document.getElementById('form-add-patient').reset();
+      document.getElementById('display-treatment-mins').innerText = '25 mins';
+    }
+
+    function toggleDoctorOutage(spec) {
+      if (state.doctors[spec]) {
+        state.doctors[spec].outage = !state.doctors[spec].outage;
+        const status = state.doctors[spec].outage ? 'OUTAGE ACTIVATED' : 'Restored to duty';
+        logEvent('OUTAGE', `Specialist Field [${spec}]: ${status}`, state.doctors[spec].outage ? 'crimson' : 'olive');
+        renderAll();
+      }
+    }
+
+    function toggleResourceOutage(resKey) {
+      if (state.resources[resKey]) {
+        state.resources[resKey].outage = !state.resources[resKey].outage;
+        const status = state.resources[resKey].outage ? 'EQUIPMENT DOWN' : 'Operational';
+        logEvent('OUTAGE', `Infrastructure Pool [${resKey}]: ${status}`, state.resources[resKey].outage ? 'crimson' : 'olive');
+        renderAll();
+      }
+    }
+
+    function setStrategy(stratKey) {
+      state.strategy = stratKey;
+
+      ['priority', 'fcfs', 'lrf'].forEach(k => {
+        const btn = document.getElementById(`strat-btn-${k}`);
+        if (btn) {
+          if (k === stratKey) {
+            btn.className = 'px-2.5 py-1 rounded-md font-semibold text-beige-50 bg-olive-600 transition shadow-sm';
+          } else {
+            btn.className = 'px-2.5 py-1 rounded-md text-slate-700 hover:text-slate-900 transition';
+          }
+        }
+      });
+
+      sortQueue();
+      const labels = { priority: 'Priority Wise', fcfs: 'First Come First Serve', lrf: 'Least Resources First' };
+      logEvent('STRATEGY', `Admission Logic switched to [${labels[stratKey] || stratKey}] strategy`, 'olive');
+      renderAll();
+    }
+
+    function renderAdmissionLogicTab() {
+      const badge = document.getElementById('active-strategy-badge');
+      const labels = {
+        priority: 'Active: Priority Wise',
+        fcfs: 'Active: First Come First Serve',
+        lrf: 'Active: Least Resources First'
+      };
+      if (badge) badge.innerText = labels[state.strategy] || 'Active: Priority Wise';
+
+      ['priority', 'fcfs', 'lrf'].forEach(k => {
+        const card = document.getElementById(`card-strat-${k}`);
+        const statusBadge = document.getElementById(`badge-status-${k}`);
+        const rowStatus = document.getElementById(`status-row-${k}`);
+
+        if (k === state.strategy) {
+          if (card) {
+            card.className = 'glass-card rounded-xl p-5 shadow-lg flex flex-col justify-between border-2 border-olive-600 bg-olive-50/20 transition-all';
+          }
+          if (statusBadge) {
+            statusBadge.className = 'text-[11px] font-mono font-bold text-olive-700';
+            statusBadge.innerText = 'Active Strategy';
+          }
+          if (rowStatus) {
+            rowStatus.className = 'py-3 px-3 font-mono font-bold text-olive-700';
+            rowStatus.innerText = 'ACTIVE';
+          }
+        } else {
+          if (card) {
+            card.className = 'glass-card rounded-xl p-5 shadow-md flex flex-col justify-between border-2 border-transparent hover:border-beige-300 transition-all';
+          }
+          if (statusBadge) {
+            statusBadge.className = 'text-[11px] font-mono text-slate-400';
+            statusBadge.innerText = 'Inactive';
+          }
+          if (rowStatus) {
+            rowStatus.className = 'py-3 px-3 font-mono text-slate-400';
+            rowStatus.innerText = 'INACTIVE';
+          }
+        }
+      });
+    }
+
+    function renderAll() {
+      renderClockAndKPIs();
+      renderQueueTable();
+      renderAdmittedPatients();
+      renderDoctorRoster();
+      renderResourcePool();
+      renderEventLogs();
+      if (state.activeTab === 2) updateTab2Charts();
+      if (state.activeTab === 3) renderAdmissionLogicTab();
+    }
+
+    function formatSimTime(totalMins) {
+      const safeMins = Math.max(0, Number(totalMins) || 0);
+      const totalSeconds = Math.floor(safeMins * 60 + 1e-6);
+      const day = Math.floor(totalSeconds / (24 * 60 * 60)) + 1;
+      const secsInDay = totalSeconds % (24 * 60 * 60);
+      let hours = Math.floor(secsInDay / 3600);
+      const mins = Math.floor((secsInDay % 3600) / 60);
+      const secs = secsInDay % 60;
+      const ampm = hours >= 12 ? 'PM' : 'AM';
+      hours = hours % 12;
+      if (hours === 0) hours = 12;
+      const pad = n => String(n).padStart(2, '0');
+      return `Day ${day} - ${pad(hours)}:${pad(mins)}:${pad(secs)} ${ampm}`;
+    }
+
+    function renderClockAndKPIs() {
+      document.getElementById('sim-clock-display').innerText = formatSimTime(state.simMinutes);
+      updatePeakHourState();
+      document.getElementById('sim-tick-display').innerText = state.simTick;
+
+      const totalBeds = state.resources.generalBeds.total + state.resources.icuBeds.total;
+      const allocatedBeds = state.resources.generalBeds.allocated + state.resources.icuBeds.allocated;
+      const occPct = totalBeds > 0 ? Math.round((allocatedBeds / totalBeds) * 100) : 0;
+
+      document.getElementById('kpi-occupancy').innerText = `${occPct}%`;
+      document.getElementById('kpi-beds-detail').innerText = `${allocatedBeds} / ${totalBeds} Beds Active`;
+
+      document.getElementById('kpi-queue-size').innerText = state.queue.length;
+
+      let totalWait = 0;
+      state.queue.forEach(p => totalWait += p.waitTime);
+      const avgWait = state.queue.length > 0 ? Math.round(totalWait / state.queue.length) : 0;
+      const avgWaitMinutes = state.queue.length > 0 ? (totalWait / state.queue.length) : 0;
+      document.getElementById('kpi-avg-wait').innerText = formatWaitDisplay(avgWaitMinutes);
+
+      const totalProcessed = state.stats.totalDischarged + state.stats.totalFatalities;
+      const mortalityRate = totalProcessed > 0 ? ((state.stats.totalFatalities / totalProcessed) * 100).toFixed(1) : '0.0';
+      document.getElementById('kpi-mortality-rate').innerText = `${mortalityRate}%`;
+      document.getElementById('kpi-deaths-count').innerText = `${state.stats.totalFatalities} Fatalities`;
+
+      const efficiency = Math.max(0, Math.round(100 - (parseFloat(mortalityRate) * 2.5) - (avgWait * 0.8)));
+      document.getElementById('kpi-hospital-efficiency').innerText = `${efficiency}%`;
+
+      let totalDocs = 0, availDocs = 0;
+      Object.values(state.doctors).forEach(d => {
+        const effectiveTotal = getEffectiveDoctorTotal(d);
+        totalDocs += effectiveTotal;
+        availDocs += d.outage ? 0 : Math.max(0, effectiveTotal - d.allocated);
+      });
+      document.getElementById('kpi-doctors-avail').innerText = `${availDocs} / ${totalDocs}`;
+    }
+
+    function formatWaitDisplay(waitMinutes) {
+      const totalSeconds = Math.max(0, Math.floor((Number(waitMinutes) || 0) * 60));
+      if (totalSeconds < 60) return `${totalSeconds}s`;
+      const mins = Math.floor(totalSeconds / 60);
+      const secs = totalSeconds % 60;
+      return `${mins}m ${String(secs).padStart(2, '0')}s`;
+    }
+
+    function renderQueueTable() {
+      const tbody = document.getElementById('queue-table-body');
+      const emptyMsg = document.getElementById('queue-empty-msg');
+      const filterDept = document.getElementById('queue-dept-filter') ? document.getElementById('queue-dept-filter').value : 'ALL';
+
+      tbody.innerHTML = '';
+
+      let filtered = state.queue;
+      if (filterDept !== 'ALL') {
+        filtered = filtered.filter(p => p.dept === filterDept);
+      }
+
+      if (filtered.length === 0) {
+        emptyMsg.classList.remove('hidden');
+        return;
+      }
+      emptyMsg.classList.add('hidden');
+
+      filtered.forEach((p, idx) => {
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-beige-100 transition';
+
+        const risk = calculateMortalityRisk(p);
+        let sevBadge = `L${p.severity}`;
+        let sevClass = 'bg-gray-200 text-gray-800';
+        if (p.severity === 5) sevClass = 'bg-crimson-red text-white font-bold';
+        else if (p.severity === 4) sevClass = 'bg-amber-warm text-slate-900 font-bold';
+        else if (p.severity === 3) sevClass = 'bg-amber-gold/80 text-slate-900';
+        else if (p.severity === 2) sevClass = 'bg-olive-300 text-olive-900';
+        else sevClass = 'bg-olive-100 text-olive-800';
+
+        const resDemand = calculateResourceDemand(p);
+
+        let metricDisplay = `${p.priorityScore} pts`;
+        if (state.strategy === 'fcfs') metricDisplay = `${Math.floor((p.waitTime || 0) * 60)}s wait`;
+        else if (state.strategy === 'lrf') metricDisplay = `${resDemand} resource score`;
+
+        tr.innerHTML = `
+          <td class="py-2.5 px-3">
+            <div class="font-bold text-slate-900">#${idx + 1} ${p.name} <span class="text-[10px] text-slate-500 font-normal">(${p.age}y)</span></div>
+            <div class="text-[10px] text-slate-500 font-mono">${p.id}${p.id.startsWith('AMB-') ? ' • 🚑' : ''}</div>
+          </td>
+          <td class="py-2.5 px-3">
+            <div class="font-medium text-slate-800">${p.condition}</div>
+            <span class="text-[10px] px-1.5 py-0.5 rounded bg-beige-200 text-slate-700 font-mono">${p.dept}</span>
+          </td>
+          <td class="py-2.5 px-3">
+            <span class="px-2 py-0.5 rounded text-[10px] ${sevClass}">${sevBadge}</span>
+
+          </td>
+          <td class="py-2.5 px-3 font-mono font-bold ${risk > 20 ? 'text-crimson-red' : risk > 5 ? 'text-amber-warm' : 'text-olive-700'}">
+            ${risk}%
+          </td>
+          <td class="py-2.5 px-3 text-[11px] text-slate-700 font-mono">
+            ${p.doctorSpec}
+          </td>
+          <td class="py-2.5 px-3 font-mono font-semibold text-slate-800">
+            ${formatWaitDisplay(p.waitTime)}
+          </td>
+          <td class="py-2.5 px-3 font-mono font-bold text-olive-800">
+            ${metricDisplay}
+          </td>
+          <td class="py-2.5 px-3 text-right space-x-1">
+            <button onclick="manualAdmit('${p.id}')" class="bg-olive-700 hover:bg-olive-800 text-white px-2 py-1 rounded text-[11px] font-semibold transition" title="Admit Patient">
+              Admit
+            </button>
+            <button onclick="dismissPatient('${p.id}')" class="bg-slate-300 hover:bg-slate-400 text-slate-800 px-2 py-1 rounded text-[11px] transition" title="Dismiss / Transfer">
+              <i class="fa-solid fa-xmark"></i>
+            </button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function renderAdmittedPatients() {
+      const grid = document.getElementById('admitted-patients-grid');
+      const badge = document.getElementById('admitted-count-badge');
+      grid.innerHTML = '';
+      badge.innerText = `${state.admitted.length} Active`;
+
+      if (state.admitted.length === 0) {
+        grid.innerHTML = `
+          <div class="col-span-2 py-8 text-center text-slate-500 text-xs">
+            <i class="fa-solid fa-bed text-olive-400 text-2xl mb-1 block"></i>
+            No active surgeries or treatment units in progress.
+          </div>
+        `;
+        return;
+      }
+
+      state.admitted.forEach((p, idx) => {
+        const progressPct = Math.min(100, Math.round((p.elapsedTime / p.totalTime) * 100));
+        const card = document.createElement('div');
+        card.className = 'bg-white p-3.5 rounded-xl border border-olive-200 shadow-sm space-y-2';
+
+        card.innerHTML = `
+          <div class="flex items-start justify-between">
+            <div>
+              <div class="font-bold text-slate-900 text-xs">${p.name} <span class="font-normal text-slate-500">(${p.age}y)</span></div>
+              <div class="text-[11px] text-olive-800 font-medium">${p.condition}</div>
+            </div>
+            <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-olive-100 text-olive-800 border border-olive-300 font-semibold">${p.dept}</span>
+          </div>
+
+          <div class="text-[11px] text-slate-600 flex justify-between items-center font-mono">
+            <span>Caregiver: ${p.treatedByNurseOnly ? 'Nurse Unit' : p.doctorSpec}</span>
+            <span>Bed: ${p.bedType}</span>
+          </div>
+
+          <div>
+            <div class="flex justify-between text-[10px] font-mono text-slate-600 mb-1">
+              <span>Progress: ${p.elapsedTime}/${p.totalTime} min</span>
+              <span class="font-bold text-olive-700">${progressPct}%</span>
+            </div>
+            <div class="w-full bg-beige-200 h-2 rounded-full overflow-hidden">
+              <div class="bg-olive-600 h-2 rounded-full transition-all duration-300" style="width: ${progressPct}%"></div>
+            </div>
+          </div>
+
+          <div class="flex justify-end pt-1">
+            <button onclick="dischargePatient(${idx})" class="text-[10px] font-bold text-crimson-red hover:underline">
+              <i class="fa-solid fa-right-from-bracket mr-1"></i> Force Discharge
+            </button>
+          </div>
+        `;
+        grid.appendChild(card);
+      });
+    }
+
+    function renderDoctorRoster() {
+      const container = document.getElementById('doctors-roster-list');
+      if (!container) return;
+      container.innerHTML = '';
+
+      Object.entries(state.doctors).forEach(([spec, data]) => {
+        const effectiveTotal = getEffectiveDoctorTotal(data);
+        const avail = data.outage ? 0 : Math.max(0, effectiveTotal - data.allocated);
+        const div = document.createElement('div');
+        div.className = 'flex items-center justify-between p-2.5 rounded-lg bg-slate-850 border border-olive-800 text-xs';
+
+        div.innerHTML = `
+          <div class="flex items-center space-x-2.5">
+            <div class="w-7 h-7 rounded-lg ${data.outage ? 'bg-crimson-red/20 text-crimson-bright' : 'bg-olive-700/40 text-olive-300'} flex items-center justify-center text-xs">
+              <i class="fa-solid ${data.icon || 'fa-user-doctor'}"></i>
+            </div>
+            <div>
+              <div class="font-bold text-beige-100 text-[11px]">${spec}</div>
+              <div class="text-[10px] text-beige-400 font-mono">${data.dept}</div>
+            </div>
+          </div>
+
+          <div class="flex items-center space-x-3">
+            <span class="font-mono text-xs font-bold ${data.outage ? 'text-crimson-bright' : avail > 0 ? 'text-emerald-400' : 'text-amber-warm'}">
+              ${data.outage ? 'OFFLINE' : `${avail} /${effectiveTotal} Avail`}
+            </span>
+            <button onclick="toggleDoctorOutage('${spec}')" class="text-[10px] px-2 py-1 rounded ${data.outage ? 'bg-emerald-800 text-white' : 'bg-slate-700 hover:bg-slate-600 text-beige-200'} transition font-mono">
+              ${data.outage ? 'Restore' : 'Sim Outage'}
+            </button>
+          </div>
+        `;
+        container.appendChild(div);
+      });
+    }
+
+    function renderResourcePool() {
+      const container = document.getElementById('resources-pool-list');
+      if (!container) return;
+      container.innerHTML = '';
+
+      const resDefs = [
+        { key: 'generalBeds', label: 'General Beds', icon: 'fa-bed' },
+        { key: 'icuBeds', label: 'ICU Beds', icon: 'fa-bed-pulse' },
+        { key: 'operatingRooms', label: 'Operating Rooms (OR)', icon: 'fa-hospital' },
+        { key: 'nurses', label: 'On-Duty Nurses', icon: 'fa-user-nurse' },
+        { key: 'ambulances', label: 'Ambulances', icon: 'fa-ambulance' }
+      ];
+
+      resDefs.forEach(r => {
+        const data = state.resources[r.key];
+        const effectiveTotal = r.key === 'nurses' ? getEffectiveNurseTotal(data) : data.total;
+        const avail = data.outage ? 0 : Math.max(0, effectiveTotal - data.allocated);
+        const div = document.createElement('div');
+        div.className = 'flex items-center justify-between p-2 rounded-lg bg-slate-850 border border-olive-800 text-xs';
+
+        div.innerHTML = `
+          <div class="flex items-center space-x-2">
+            <i class="fa-solid ${r.icon} text-olive-400 text-xs w-4"></i>
+            <span class="text-beige-200 font-medium text-[11px]">${r.label}</span>
+          </div>
+          <div class="flex items-center space-x-3">
+            <span class="font-mono text-[11px] font-bold ${data.outage ? 'text-crimson-bright' : avail > 0 ? 'text-emerald-400' : 'text-amber-warm'}">
+              ${data.outage ? 'OUTAGE' : `${avail} /${effectiveTotal}`}
+            </span>
+            <button onclick="toggleResourceOutage('${r.key}')" class="text-[9px] px-1.5 py-0.5 rounded ${data.outage ? 'bg-emerald-800 text-white' : 'bg-slate-700 text-beige-300'} font-mono">
+              ${data.outage ? 'Restore' : 'Outage'}
+            </button>
+          </div>
+        `;
+        container.appendChild(div);
+      });
+    }
+
+    function logEvent(category, message, level = 'olive') {
+      const timeStr = formatSimTime(state.simMinutes).split('-')[1].trim();
+      state.logs.unshift({ time: timeStr, category, message, level });
+      if (state.logs.length > 50) state.logs.pop();
+      renderEventLogs();
+    }
+
+    function renderEventLogs() {
+      const container = document.getElementById('event-log-container');
+      if (!container) return;
+      container.innerHTML = '';
+
+      state.logs.forEach(log => {
+        const div = document.createElement('div');
+        let colorClass = 'text-slate-700 bg-beige-50 border-beige-200';
+        if (log.level === 'crimson') colorClass = 'text-crimson-red bg-crimson-red/10 border-crimson-red/30 font-bold';
+        else if (log.level === 'amber') colorClass = 'text-amber-warm bg-amber-gold/10 border-amber-gold/30 font-semibold';
+        else if (log.level === 'olive') colorClass = 'text-olive-800 bg-olive-50 border-olive-200';
+
+        div.className = `p-1.5 rounded border text-[10px] ${colorClass} flex items-start space-x-1.5`;
+        div.innerHTML = `
+          <span class="font-mono font-bold shrink-0">[${log.time}]</span>
+          <span class="font-bold uppercase tracking-wider shrink-0 text-[9px] px-1 bg-black/10 rounded">${log.category}</span>
+          <span class="flex-1">${log.message}</span>
+        `;
+        container.appendChild(div);
+      });
+    }
+
+    function clearEventLogs() {
+      state.logs = [];
+      renderEventLogs();
+    }
+
+    function initCharts() {
+      const ctxUtil = document.getElementById('chart-utilization');
+      if (ctxUtil) {
+        chartUtilization = new Chart(ctxUtil, {
+          type: 'line',
+          data: {
+            labels: ['0m', '5m', '10m', '15m', '20m', '25m'],
+            datasets: [{
+              label: 'Bed Utilization %',
+              data: [20, 35, 40, 50, 45, 60],
+              borderColor: '#4A5D4E',
+              backgroundColor: 'rgba(74, 93, 78, 0.1)',
+              fill: true,
+              tension: 0.3
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { y: { min: 0, max: 100 } }
+          }
+        });
+      }
+
+      const ctxAcuity = document.getElementById('chart-acuity');
+      if (ctxAcuity) {
+        chartAcuity = new Chart(ctxAcuity, {
+          type: 'doughnut',
+          data: {
+            labels: ['L5 Resus', 'L4 Severe', 'L3 High', 'L2 Urgent', 'L1 Minor'],
+            datasets: [{
+              data: [1, 1, 2, 1, 1],
+              backgroundColor: ['#A84438', '#D9A736', '#C29B38', '#6E8271', '#9FB4A3']
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { position: 'right', labels: { boxWidth: 10, font: { size: 10 } } } }
+          }
+        });
+      }
+
+      const ctxStrat = document.getElementById('chart-strategy');
+      if (ctxStrat) {
+        chartStrategy = new Chart(ctxStrat, {
+          type: 'bar',
+          data: {
+            labels: ['Priority Wise', 'First Come First Serve', 'Least Resources First'],
+            datasets: [{
+              label: 'Avg Wait (Mins)',
+              data: [4.2, 8.5, 3.1],
+              backgroundColor: ['#4A5D4E', '#D9A736', '#6E8271']
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true } }
+          }
+        });
+      }
+    }
+
+    function updateCharts() {
+      if (chartUtilization) {
+        const totalBeds = state.resources.generalBeds.total + state.resources.icuBeds.total;
+        const allocatedBeds = state.resources.generalBeds.allocated + state.resources.icuBeds.allocated;
+        const occPct = totalBeds > 0 ? Math.round((allocatedBeds / totalBeds) * 100) : 0;
+
+        chartUtilization.data.labels.push(formatSimTime(state.simMinutes).split(' - ')[1]);
+        chartUtilization.data.datasets[0].data.push(occPct);
+        if (chartUtilization.data.labels.length > 8) {
+          chartUtilization.data.labels.shift();
+          chartUtilization.data.datasets[0].data.shift();
+        }
+        chartUtilization.update('none');
+      }
+
+      if (chartAcuity) {
+        const counts = [0, 0, 0, 0, 0];
+        state.queue.forEach(p => {
+          if (p.severity >= 1 && p.severity <= 5) counts[5 - p.severity]++;
+        });
+        chartAcuity.data.datasets[0].data = counts;
+        chartAcuity.update('none');
+      }
+
+      if (chartStrategy) {
+        const pAvg = state.strategyMetrics.priority.count > 0 ? (state.strategyMetrics.priority.totalWait / state.strategyMetrics.priority.count).toFixed(1) : 4.2;
+        const fAvg = state.strategyMetrics.fcfs.count > 0 ? (state.strategyMetrics.fcfs.totalWait / state.strategyMetrics.fcfs.count).toFixed(1) : 8.5;
+        const lAvg = state.strategyMetrics.lrf.count > 0 ? (state.strategyMetrics.lrf.totalWait / state.strategyMetrics.lrf.count).toFixed(1) : 3.1;
+        chartStrategy.data.datasets[0].data = [pAvg, fAvg, lAvg];
+        chartStrategy.update('none');
+      }
+    }
+
+    function initTab2Charts() {
+      const depts = ['Cardiology', 'Emergency', 'ICU', 'Surgery', 'Neurology', 'Orthopedics', 'General Care'];
+
+      const ctxBeds = document.getElementById('chart-dept-beds');
+      if (ctxBeds) {
+        chartDeptBeds = new Chart(ctxBeds, {
+          type: 'bar',
+          data: {
+            labels: depts,
+            datasets: [
+              { label: 'Beds Used', data: [2, 3, 4, 1, 1, 2, 1], backgroundColor: '#4A5D4E' },
+              { label: 'Beds Free', data: [4, 5, 4, 5, 3, 3, 5], backgroundColor: '#D9D1C0' }
+            ]
+          },
+          options: { responsive: true, maintainAspectRatio: false, scales: { x: { stacked: true }, y: { stacked: true } } }
+        });
+      }
+
+      const ctxWait = document.getElementById('chart-wait-vs-treatment');
+      if (ctxWait) {
+        chartWaitVsTreatment = new Chart(ctxWait, {
+          type: 'bar',
+          data: {
+            labels: depts,
+            datasets: [
+              { label: 'Avg Wait (mins)', data: [12, 15, 8, 10, 14, 9, 5], backgroundColor: '#A84438' },
+              { label: 'Avg Treatment (mins)', data: [30, 20, 35, 40, 25, 20, 10], backgroundColor: '#6E8271' }
+            ]
+          },
+          options: { responsive: true, maintainAspectRatio: false }
+        });
+      }
+
+      const ctxDocs = document.getElementById('chart-dept-doctors');
+      if (ctxDocs) {
+        chartDeptDoctors = new Chart(ctxDocs, {
+          type: 'bar',
+          data: {
+            labels: depts,
+            datasets: [
+              { label: 'Doctors Busy', data: [2, 3, 2, 2, 1, 1, 1], backgroundColor: '#C29B38' },
+              { label: 'Doctors Free', data: [2, 3, 2, 3, 2, 2, 3], backgroundColor: '#9FB4A3' }
+            ]
+          },
+          options: { responsive: true, maintainAspectRatio: false, scales: { x: { stacked: true }, y: { stacked: true } } }
+        });
+      }
+
+      const ctxPatients = document.getElementById('chart-dept-patients');
+      if (ctxPatients) {
+        chartDeptPatients = new Chart(ctxPatients, {
+          type: 'bar',
+          data: {
+            labels: depts,
+            datasets: [
+              { label: 'Queued', data: [1, 2, 1, 1, 1, 1, 1], backgroundColor: '#D9A736' },
+              { label: 'Admitted', data: [2, 2, 3, 1, 1, 1, 1], backgroundColor: '#3B4A3E' }
+            ]
+          },
+          options: { responsive: true, maintainAspectRatio: false }
+        });
+      }
+    }
+
+    function updateTab2Charts() {
+      const depts = ['Cardiology', 'Emergency', 'ICU', 'Surgery', 'Neurology', 'Orthopedics', 'General Care'];
+
+      const bedsUsed = [], bedsFree = [];
+      const docBusy = [], docFree = [];
+      const queuedCount = [], admittedCount = [];
+
+      const docSpecMap = {
+        'Cardiology': 'Cardiologists',
+        'Emergency': 'ER Physicians',
+        'ICU': 'Intensivists',
+        'Surgery': 'General Surgeons',
+        'Neurology': 'Neurologists',
+        'Orthopedics': 'Orthopedic Surgeons',
+        'General Care': 'General Practitioners'
+      };
+
+      depts.forEach(d => {
+        const totalB = state.departmentBeds[d] || 5;
+        const admInDept = state.admitted.filter(p => p.dept === d).length;
+        bedsUsed.push(admInDept);
+        bedsFree.push(Math.max(0, totalB - admInDept));
+
+        const spec = docSpecMap[d];
+        const docObj = state.doctors[spec] || { total: 4, allocated: 0, outage: false };
+        const alloc = docObj.outage ? docObj.total : docObj.allocated;
+        docBusy.push(alloc);
+        docFree.push(docObj.outage ? 0 : Math.max(0, docObj.total - alloc));
+
+        queuedCount.push(state.queue.filter(p => p.dept === d).length);
+        admittedCount.push(admInDept);
+      });
+
+      if (chartDeptBeds) {
+        chartDeptBeds.data.datasets[0].data = bedsUsed;
+        chartDeptBeds.data.datasets[1].data = bedsFree;
+        chartDeptBeds.update('none');
+      }
+
+      if (chartDeptDoctors) {
+        chartDeptDoctors.data.datasets[0].data = docBusy;
+        chartDeptDoctors.data.datasets[1].data = docFree;
+        chartDeptDoctors.update('none');
+      }
+
+      if (chartDeptPatients) {
+        chartDeptPatients.data.datasets[0].data = queuedCount;
+        chartDeptPatients.data.datasets[1].data = admittedCount;
+        chartDeptPatients.update('none');
+      }
+    }
+  </script>
+</body>
+</html>
